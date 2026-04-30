@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 
 import { executeIssueReview } from '../extensions/squad-reviews/lib/issue-review.mjs';
-import { mockFetch, resetMocks } from './helpers.mjs';
+import { mockFetch, resetMocks, COMPLIANT_REVIEW_BODY } from './helpers.mjs';
 
 const repoRoot = new URL('./fixtures/issue-review/', import.meta.url).pathname;
 
@@ -23,21 +23,20 @@ describe('issue-review.mjs', () => {
     const result = await executeIssueReview(repoRoot, 'ghs_test_token', {
       issue: 7,
       roleSlug: 'security',
-      reviewBody: 'Security review feedback.',
+      reviewBody: COMPLIANT_REVIEW_BODY,
       approved: false,
       owner: 'acme',
       repo: 'rocket',
     });
 
-    assert.deepEqual(result, {
-      posted: true,
-      commentId: 701,
-      labelApplied: null,
-      reviewer: 'zapp',
-      issue: 7,
-    });
+    assert.equal(result.posted, true);
+    assert.equal(result.commentId, 701);
+    assert.equal(result.labelApplied, null);
+    assert.equal(result.reviewer, 'zapp');
+    assert.equal(result.issue, 7);
+    assert.ok(result.quality);
     assert.equal(spy.calls.length, 1);
-    assert.equal(JSON.parse(spy.calls[0].init.body).body, 'Security review feedback.');
+    assert.equal(JSON.parse(spy.calls[0].init.body).body, COMPLIANT_REVIEW_BODY);
   });
 
   it('applies label when approved', async () => {
@@ -57,7 +56,7 @@ describe('issue-review.mjs', () => {
     const result = await executeIssueReview(repoRoot, 'ghs_test_token', {
       issue: 7,
       roleSlug: 'security',
-      reviewBody: 'Approved from a security perspective.',
+      reviewBody: COMPLIANT_REVIEW_BODY,
       approved: true,
       owner: 'acme',
       repo: 'rocket',
@@ -82,7 +81,7 @@ describe('issue-review.mjs', () => {
     const result = await executeIssueReview(repoRoot, 'ghs_test_token', {
       issue: 7,
       roleSlug: 'security',
-      reviewBody: 'Not approved yet.',
+      reviewBody: COMPLIANT_REVIEW_BODY,
       approved: false,
       owner: 'acme',
       repo: 'rocket',

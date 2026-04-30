@@ -111,6 +111,85 @@ Avoid these failures:
 - Ignoring review feedback from humans or Copilot
 - Using labels for PR reviews instead of native review events
 
+## 8) Review Quality Standards
+
+All reviews are validated against quality standards before posting. Reviews that fail validation are rejected with actionable error messages.
+
+### Standards
+
+| Standard | Requirement |
+|----------|-------------|
+| **Minimum length** | 150 words minimum (excluding code blocks and citations) |
+| **Citations** | Must cite specific file paths + line numbers (e.g., `src/auth.ts:45-62`) OR use inline review comments |
+| **No shallow approvals** | One-liner approvals like "LGTM" or "Looks good" are rejected |
+| **No approve with caveats** | If changes are needed, use `REQUEST_CHANGES` — never `APPROVE` with suggested fixes |
+| **Native suggestions** | When proposing code changes, prefer GitHub's native suggestion blocks |
+
+### Native Suggestion Format
+
+When requesting code changes, use GitHub's native change suggestions instead of describing changes in prose:
+
+```markdown
+I found an issue at src/auth.ts:45-62. The null check is missing:
+
+```suggestion
+if (token != null) {
+  return validateToken(token);
+}
+return null;
+`` `
+```
+
+Native suggestions allow the PR author to apply the fix with one click.
+
+### Inline Review Comments
+
+Use the `comments` parameter on `squad_reviews_execute_pr_review` to attach comments directly to specific lines:
+
+```json
+{
+  "comments": [
+    {
+      "path": "src/auth.ts",
+      "line": 45,
+      "body": "Missing null check:\n```suggestion\nif (token != null) {\n  return validateToken(token);\n}\n```"
+    }
+  ]
+}
+```
+
+### Example of a Compliant Review
+
+```
+## Security Review — Trust Boundaries
+
+Reviewed the authentication refactoring in src/auth.ts:45-62 and src/middleware.ts:12-30.
+
+**Findings:**
+
+1. The token validation at src/auth.ts:52 correctly uses constant-time comparison,
+   preventing timing attacks on JWT signatures.
+
+2. Session storage at src/session.ts:88-95 properly isolates per-request state.
+   No cross-request leakage is possible through the middleware chain.
+
+3. The new cache layer at src/cache.ts:8-15 bounds memory with LRU eviction.
+   TTL is derived from token expiry — this prevents serving stale validations.
+
+**Concern:** The error handler at src/middleware.ts:28 logs the full token on
+auth failure. This leaks credentials to the log sink.
+
+```suggestion
+logger.warn('Auth failed', { tokenPrefix: token.slice(0, 8) });
+`` `
+
+Overall: REQUEST_CHANGES due to the credential leak above.
+```
+
+### Duplicate Review Guard
+
+Reviews are idempotent. If the reviewing bot already has a review on the current HEAD commit, the tool returns `{ skipped: true }` with the existing review ID instead of posting a duplicate. This ensures safe retry behavior.
+
 ## Quick flow
 
 1. Request review with the target reviewer role slug.

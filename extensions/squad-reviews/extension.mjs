@@ -385,23 +385,41 @@ joinSession(async session => {
 
   registerJsonTool(session, {
     name: 'squad_reviews_execute_pr_review',
-    description: 'Execute a PR review using the configured reviewer charter and GitHub bot token. Call squad_identity_resolve_token first to get the token.',
+    description: 'Execute a PR review using the configured reviewer charter and GitHub bot token. Validates review quality before posting. Call squad_identity_resolve_token first to get the token.',
     inputSchema: {
       type: 'object',
       properties: {
         pr: { type: 'number' },
         roleSlug: { type: 'string' },
         event: { type: 'string', enum: ['COMMENT', 'REQUEST_CHANGES', 'APPROVE'] },
-        reviewBody: { type: 'string' },
+        reviewBody: { type: 'string', description: 'Main review body (min 150 words, must cite file:line references).' },
+        comments: {
+          type: 'array',
+          description: 'Inline review comments attached to specific lines. Use suggestion blocks for proposed fixes.',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'File path relative to repo root.' },
+              line: { type: 'number', description: 'Line number for single-line comment (or end line for multi-line).' },
+              start_line: { type: 'number', description: 'Start line for multi-line comment (omit for single-line).' },
+              side: { type: 'string', enum: ['LEFT', 'RIGHT'], description: 'Side of diff. Default: RIGHT.' },
+              body: {
+                type: 'string',
+                description: 'Comment body. Use ```suggestion\\n...\\n``` blocks for native change suggestions.',
+              },
+            },
+            required: ['path', 'line', 'body'],
+          },
+        },
         token: { type: 'string', description: 'GitHub token for this role (from squad_identity_resolve_token). Required.' },
         owner: { type: 'string' },
         repo: { type: 'string' },
       },
       required: ['pr', 'roleSlug', 'event', 'token', 'owner', 'repo'],
     },
-    handler: async ({ pr, roleSlug, event, reviewBody, token, owner, repo }) => {
+    handler: async ({ pr, roleSlug, event, reviewBody, comments, token, owner, repo }) => {
       if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
-      return executePrReview(REPO_ROOT, token, { pr, roleSlug, event, reviewBody, owner, repo });
+      return executePrReview(REPO_ROOT, token, { pr, roleSlug, event, reviewBody, comments, owner, repo });
     },
   });
 

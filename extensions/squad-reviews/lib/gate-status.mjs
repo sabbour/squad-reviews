@@ -39,6 +39,55 @@ async function paginatedGet(url, token) {
   return items;
 }
 
+function matchesGlob(path, pattern) {
+  const regex = new RegExp(
+    '^' + pattern.replace(/\*\*/g, '@@GLOBSTAR@@')
+      .replace(/\*/g, '[^/]*')
+      .replace(/@@GLOBSTAR@@/g, '.*')
+      .replace(/\?/g, '[^/]') + '$'
+  );
+  return regex.test(path);
+}
+
+function anyPathMatches(paths, patterns) {
+  if (!patterns || patterns.length === 0) return false;
+  return paths.some(p => patterns.some(pat => matchesGlob(p, pat)));
+}
+
+/**
+ * Evaluate whether a role is required given PR context.
+ */
+function isRoleRequired(gateRule, prLabels, changedPaths) {
+  if (!gateRule || gateRule.required === 'always') return { required: true };
+  if (gateRule.required === 'optional') return { required: false, reason: 'optional' };
+
+  // Conditional evaluation
+  const normalizedLabels = prLabels.map(l => l.toLowerCase());
+
+  // Check bypass labels
+  const bypassLabels = (gateRule.bypassLabels || []).concat(gateRule.bypassWhen?.labels || []);
+  if (bypassLabels.some(bl => normalizedLabels.includes(bl.toLowerCase()))) {
+    // Check if required paths still trigger it
+    const requiredPaths = gateRule.requiredWhen?.paths || [];
+    if (requiredPaths.length > 0 && anyPathMatches(changedPaths, requiredPaths)) {
+      return { required: true, reason: 'bypass label present but required paths matched' };
+    }
+    return { required: false, reason: 'bypass label present' };
+  }
+
+  // Check requiredWhen paths
+  const requiredPaths = gateRule.requiredWhen?.paths || [];
+  if (requiredPaths.length > 0) {
+    if (anyPathMatches(changedPaths, requiredPaths)) {
+      return { required: true, reason: 'changed files match required paths' };
+    }
+    return { required: false, reason: 'no changed files match required paths' };
+  }
+
+  // No conditions specified — treat as required
+  return { required: true };
+}
+
 /**
  * Check the review gate status for a PR.
  * @param {string} repoRoot
@@ -55,25 +104,53 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
   const configRoles = Object.keys(config.reviewers);
   const effectiveRoles = roles && roles.length > 0 ? roles : configRoles;
 
-  // Fetch all reviews with pagination
+  // Fetch reviews, PR labels, and changed files in parallel
   const reviewsUrl = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/pulls/${pr}/reviews?per_page=100`;
-  const allReviews = await paginatedGet(reviewsUrl, token);
+  const prUrl = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/pulls/${pr}`;
+  const filesUrl = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/pulls/${pr}/files?per_page=100`;
 
-  // For each role, find the latest review from that role's bot
+  const [allReviews, prData, changedFiles] = await Promise.all([
+    paginatedGet(reviewsUrl, token),
+    fetch(prUrl, { headers: buildHeaders(token) }).then(r => r.json()),
+    paginatedGet(filesUrl, token),
+  ]);
+
+  const prLabels = (prData.labels || []).map(l => l.name);
+  const changedPaths = changedFiles.map(f => f.filename);
+
+  // For each role, evaluate if required and find the latest review
   const roleStatuses = [];
+  const skippedRoles = [];
 
   for (const role of effectiveRoles) {
     const reviewer = config.reviewers[role];
+    const gateRule = reviewer?.gateRule;
     const botLogin = resolveBotLogin(role, repoRoot);
 
-    // Find reviews from this role's bot — match on botLogin if resolved,
-    // otherwise fail clearly (identity must be configured)
+    // Evaluate conditional requirements
+    const requirement = isRoleRequired(gateRule, prLabels, changedPaths);
+    if (!requirement.required) {
+      skippedRoles.push({ role, reason: requirement.reason });
+      roleStatuses.push({
+        role,
+        agent: reviewer?.agent || null,
+        botLogin,
+        approved: null,
+        required: false,
+        skippedReason: requirement.reason,
+        latestState: null,
+        latestReviewedAt: null,
+        reviewerLogin: null,
+      });
+      continue;
+    }
+
+    // Find reviews from this role's bot
     const roleReviews = allReviews.filter(r => {
       const login = r.user?.login?.toLowerCase() || '';
       if (botLogin) {
         return login === botLogin.toLowerCase();
       }
-      // Fallback heuristic when identity is not configured
       return (
         login.includes(role.toLowerCase()) ||
         login === `${role}-bot` ||
@@ -81,7 +158,7 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
       );
     });
 
-    // Find most recent review (latest submitted_at)
+    // Find most recent review
     const latestReview = roleReviews.sort(
       (a, b) => new Date(b.submitted_at) - new Date(a.submitted_at)
     )[0] || null;
@@ -93,6 +170,7 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
       agent: reviewer?.agent || null,
       botLogin,
       approved,
+      required: true,
       latestState: latestReview?.state || null,
       latestReviewedAt: latestReview?.submitted_at || null,
       reviewerLogin: latestReview?.user?.login || null,
@@ -128,8 +206,9 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
     // Non-fatal; gate status is best-effort for threads
   }
 
-  const approvedRoles = roleStatuses.filter(r => r.approved).map(r => r.role);
-  const pendingRoles = roleStatuses.filter(r => !r.approved).map(r => r.role);
+  const requiredStatuses = roleStatuses.filter(r => r.required);
+  const approvedRoles = requiredStatuses.filter(r => r.approved).map(r => r.role);
+  const pendingRoles = requiredStatuses.filter(r => !r.approved).map(r => r.role);
   const passed = pendingRoles.length === 0 && unresolvedCount === 0;
 
   return {
@@ -140,6 +219,7 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
     roles: roleStatuses,
     approvedRoles,
     pendingRoles,
+    skippedRoles,
     unresolvedThreads: unresolvedCount,
     summary: passed
       ? '✅ Review gate passed — all roles approved, no unresolved threads'

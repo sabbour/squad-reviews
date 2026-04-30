@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { fetchPrDiff, postReview } from './github-api.mjs';
-import { loadConfig, resolveReviewer } from './review-config.mjs';
+import { fetchPrDiff, fetchPrHead, fetchPrReviews, postReview } from './github-api.mjs';
+import { loadConfig, resolveReviewer, resolveBotLogin } from './review-config.mjs';
 import { appendAuditEntry } from './audit-log.mjs';
+import { validateReviewQuality } from './review-quality.mjs';
 
 const VALID_REVIEW_EVENTS = new Set(['COMMENT', 'REQUEST_CHANGES', 'APPROVE']);
 
@@ -27,7 +28,7 @@ function readCharter(repoRoot, charterPath) {
   }
 }
 
-export async function executePrReview(repoRoot, token, { pr, roleSlug, event, reviewBody, owner, repo }) {
+export async function executePrReview(repoRoot, token, { pr, roleSlug, event, reviewBody, comments, owner, repo }) {
   const config = loadConfig(repoRoot);
   const reviewer = resolveReviewer(config, roleSlug);
 
@@ -37,7 +38,51 @@ export async function executePrReview(repoRoot, token, { pr, roleSlug, event, re
   const diff = await fetchPrDiff(token, owner, repo, pr);
 
   if (reviewBody !== undefined) {
-    const reviewId = await postReview(token, owner, repo, pr, reviewBody, event);
+    // Duplicate review guard: check if this bot already reviewed the current HEAD
+    const botLogin = resolveBotLogin(roleSlug, repoRoot);
+    if (botLogin) {
+      const [headSha, existingReviews] = await Promise.all([
+        fetchPrHead(token, owner, repo, pr),
+        fetchPrReviews(token, owner, repo, pr),
+      ]);
+
+      const duplicateReview = existingReviews.find(r =>
+        r.user?.login?.toLowerCase() === botLogin.toLowerCase() &&
+        r.commit_id === headSha
+      );
+
+      if (duplicateReview) {
+        return {
+          posted: false,
+          skipped: true,
+          reason: `Review already exists for commit ${headSha.slice(0, 7)} by ${botLogin}`,
+          existingReviewId: String(duplicateReview.id),
+          existingState: duplicateReview.state,
+        };
+      }
+    }
+
+    // Validate review quality before posting
+    const inlineComments = (comments || []).map(c => c.body || '');
+    const quality = validateReviewQuality(reviewBody, event, { inlineComments });
+
+    if (!quality.valid) {
+      return {
+        posted: false,
+        rejected: true,
+        violations: quality.violations,
+        metrics: quality.metrics,
+        hint: 'Revise the review to meet quality standards. See SKILL.md "Review Quality Standards" for requirements.',
+      };
+    }
+
+    const reviewPayload = { body: reviewBody, event };
+    // Support inline comments with native suggestions
+    if (comments && comments.length > 0) {
+      reviewPayload.comments = comments;
+    }
+
+    const reviewId = await postReview(token, owner, repo, pr, reviewPayload);
 
     appendAuditEntry(repoRoot, {
       action: 'review_posted',
@@ -47,6 +92,7 @@ export async function executePrReview(repoRoot, token, { pr, roleSlug, event, re
       roleSlug,
       event,
       reviewId: String(reviewId),
+      quality: quality.metrics,
     });
 
     return {
@@ -54,6 +100,7 @@ export async function executePrReview(repoRoot, token, { pr, roleSlug, event, re
       reviewId: String(reviewId),
       event,
       reviewer: reviewer.agent,
+      quality: quality.metrics,
     };
   }
 

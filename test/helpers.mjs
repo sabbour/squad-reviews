@@ -145,3 +145,23 @@ export function resetMocks() {
 export function fixturePath(name) {
   return resolve(testDir, 'fixtures', name);
 }
+
+/**
+ * A review body that passes quality validation (>150 words, has citations).
+ * Use this in tests that need a valid review body but aren't testing quality.
+ */
+export const COMPLIANT_REVIEW_BODY = [
+  'This change introduces a significant refactoring of the authentication module. ',
+  'The implementation correctly separates the token validation logic from the session management layer. ',
+  'Looking at src/auth.ts:45-62, the new validateToken function properly handles edge cases ',
+  'including expired tokens, malformed JWTs, and missing claims. The error propagation through ',
+  'the middleware chain at src/middleware.ts:12-30 follows the established patterns correctly. ',
+  'Performance considerations: the new caching layer reduces redundant crypto operations by ',
+  'memoizing validated tokens for their remaining TTL. Memory pressure is bounded by the LRU ',
+  'eviction policy configured at src/cache.ts:8. Test coverage adequately exercises the happy ',
+  'path and three key failure modes: expired token, invalid signature, and missing required claims. ',
+  'The integration tests verify end-to-end behavior through the HTTP layer correctly. Overall this change ',
+  'improves maintainability while preserving correctness and reliability. Security boundaries are respected — ',
+  'no secrets leak across module boundaries and all cryptographic operations use constant-time ',
+  'comparison functions as required by our security charter standards.',
+].join('');

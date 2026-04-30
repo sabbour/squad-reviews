@@ -3,7 +3,7 @@ import { afterEach, describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 
 import { executePrReview } from '../extensions/squad-reviews/lib/execute-review.mjs';
-import { fixturePath, mockFetch, resetMocks } from './helpers.mjs';
+import { fixturePath, mockFetch, resetMocks, COMPLIANT_REVIEW_BODY } from './helpers.mjs';
 
 const repoRoot = new URL('./fixtures/review-repo/', import.meta.url).pathname;
 const sampleDiff = readFileSync(fixturePath('sample-diff.txt'), 'utf8');
@@ -30,17 +30,16 @@ describe('execute-review.mjs', () => {
       pr: 42,
       roleSlug: 'core-dev',
       event: 'COMMENT',
-      reviewBody: 'Non-blocking feedback.',
+      reviewBody: COMPLIANT_REVIEW_BODY,
       owner: 'acme',
       repo: 'rocket',
     });
 
-    assert.deepEqual(result, {
-      posted: true,
-      reviewId: '501',
-      event: 'COMMENT',
-      reviewer: 'poe',
-    });
+    assert.equal(result.posted, true);
+    assert.equal(result.reviewId, '501');
+    assert.equal(result.event, 'COMMENT');
+    assert.equal(result.reviewer, 'poe');
+    assert.ok(result.quality);
     assert.equal(spy.calls.length, 2);
     assert.equal(JSON.parse(spy.calls[1].init.body).event, 'COMMENT');
   });
@@ -62,7 +61,7 @@ describe('execute-review.mjs', () => {
       pr: 42,
       roleSlug: 'core-dev',
       event: 'REQUEST_CHANGES',
-      reviewBody: 'Blocking regression found.',
+      reviewBody: COMPLIANT_REVIEW_BODY,
       owner: 'acme',
       repo: 'rocket',
     });

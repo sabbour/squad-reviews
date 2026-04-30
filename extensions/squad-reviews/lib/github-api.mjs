@@ -169,6 +169,17 @@ export async function fetchPrDiff(token, owner, repo, prNumber) {
   });
 }
 
+export async function fetchPrHead(token, owner, repo, prNumber) {
+  const url = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/pulls/${prNumber}`;
+  const pr = await requestJson(url, { token });
+  return pr.head?.sha || null;
+}
+
+export async function fetchPrReviews(token, owner, repo, prNumber) {
+  const url = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/pulls/${prNumber}/reviews?per_page=100`;
+  return requestPaginatedJson(url, token);
+}
+
 export async function fetchPrThreads(token, owner, repo, prNumber) {
   const commentsUrl = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/pulls/${prNumber}/comments?per_page=100`;
   const [comments, threadMetadata] = await Promise.all([
@@ -194,12 +205,22 @@ export async function fetchPrThreads(token, owner, repo, prNumber) {
     });
 }
 
-export async function postReview(token, owner, repo, prNumber, body, event) {
+export async function postReview(token, owner, repo, prNumber, payload) {
   const url = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`;
+  // payload may be { body, event } or { body, event, comments }
+  // Support legacy (body, event) signature for backward compat
+  let reviewBody;
+  if (typeof payload === 'string') {
+    // Legacy: postReview(token, owner, repo, pr, body, event)
+    const event = arguments[5];
+    reviewBody = { body: payload, event };
+  } else {
+    reviewBody = payload;
+  }
   const review = await requestJson(url, {
     method: 'POST',
     token,
-    body: { body, event },
+    body: reviewBody,
   });
 
   return review.id;

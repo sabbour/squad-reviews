@@ -384,6 +384,43 @@ Install and configure identity first. Bot login for each reviewer role is derive
 
 ---
 
+## Review Quality Gate
+
+Reviews are validated against quality standards before posting. If a review fails validation, it is rejected with actionable error messages — no review is posted to GitHub.
+
+| Standard | Requirement |
+|----------|-------------|
+| Minimum length | 150 words (excluding code blocks) |
+| Citations | Must cite `file:line` references or use inline comments |
+| No shallow approvals | "LGTM", "Looks good", etc. are rejected |
+| No approve with caveats | Use `REQUEST_CHANGES` if changes are needed |
+
+### Native Change Suggestions
+
+When requesting code changes, prefer GitHub's native suggestion blocks:
+
+```markdown
+```suggestion
+if (token != null) {
+  return validateToken(token);
+}
+```
+```
+
+Pass inline comments via the `comments` array on `squad_reviews_execute_pr_review`:
+
+```json
+{
+  "comments": [{ "path": "src/auth.ts", "line": 45, "body": "```suggestion\n...\n```" }]
+}
+```
+
+### Idempotent Reviews (Duplicate Guard)
+
+If the reviewer bot already has a review on the current HEAD commit, re-executing returns `{ skipped: true, existingReviewId }` instead of posting a duplicate. This ensures safe retry behavior.
+
+---
+
 ## Audit Log
 
 Every review action is appended to `reviews/audit.jsonl` — an append-only log that records:
