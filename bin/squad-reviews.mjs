@@ -541,8 +541,8 @@ async function commandSetup(values) {
 
   log(`\n✅ squad-reviews setup complete.`);
   log(`\nNext steps:`);
-  log(`  1. Run: squad-reviews generate-config`);
-  log(`     This scaffolds reviews/config.json from your squad-identity config.`);
+  log(`  1. In a Copilot CLI session, call squad_reviews_generate_config`);
+  log(`     to scaffold reviews/config.json from your squad-identity config.`);
   log(`     Then edit dimensions and gate rules for each role.`);
   log(`  2. Commit all generated files.`);
   log(`  3. Set the Review Gate as a required status check in branch protection.`);
