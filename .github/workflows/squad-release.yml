@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    branches: [main, insider]
+    branches: [main]
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
@@ -41,30 +41,17 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
 
-      # On insider: publishes with --tag insider (pre-release channel)
-      - name: Publish Insider Pre-release (npmjs)
-        if: github.ref == 'refs/heads/insider'
-        id: changesets-insider
-        uses: changesets/action@v1
-        with:
-          publish: npx changeset publish
-          title: "chore: version packages (insider)"
-          commit: "chore: version packages (insider)"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
 
       # Publish to GitHub Packages (mirror)
       - name: Setup GitHub Packages registry
-        if: steps.changesets-stable.outputs.published == 'true' || steps.changesets-insider.outputs.published == 'true'
+        if: steps.changesets-stable.outputs.published == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
           registry-url: https://npm.pkg.github.com
 
       - name: Publish to GitHub Packages
-        if: steps.changesets-stable.outputs.published == 'true' || steps.changesets-insider.outputs.published == 'true'
+        if: steps.changesets-stable.outputs.published == 'true'
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
