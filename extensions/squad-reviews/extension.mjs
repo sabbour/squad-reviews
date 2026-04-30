@@ -6,7 +6,7 @@ import {
   mkdirSync,
   readFileSync,
 } from 'node:fs';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +22,15 @@ import { resolveThread } from './lib/resolve-thread.mjs';
 import { scaffoldGate } from './lib/scaffold-gate.mjs';
 
 const execFileAsync = promisify(execFile);
+
+// process.execPath may be the copilot binary, not node. Find real node.
+const NODE_BIN = (() => {
+  try {
+    return execFileSync('which', ['node'], { encoding: 'utf8' }).trim() || 'node';
+  } catch {
+    return 'node';
+  }
+})();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LIB_DIR = join(__dirname, 'lib');
@@ -366,6 +375,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_request_pr_review',
       description: 'Request a PR review from a configured Squad reviewer role.',
+      skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
@@ -383,6 +393,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_execute_pr_review',
       description: 'Execute a PR review using the configured reviewer charter and GitHub bot token. Validates review quality before posting. Call squad_identity_resolve_token first to get the token.',
+      skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
@@ -422,6 +433,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_acknowledge_feedback',
       description: 'List unresolved PR review threads that must be addressed or dismissed. Call squad_identity_resolve_token first.',
+      skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
@@ -440,6 +452,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_resolve_thread',
       description: 'Reply to a PR review thread, then resolve it as addressed or dismissed. Call squad_identity_resolve_token first.',
+      skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
@@ -470,6 +483,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_request_issue_review',
       description: 'Request an issue review from a configured Squad reviewer role.',
+      skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
@@ -487,6 +501,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_execute_issue_review',
       description: 'Execute an issue review and optionally apply the approval label. Call squad_identity_resolve_token first to get the token.',
+      skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
@@ -522,6 +537,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_setup',
       description: 'Create .squad/reviews/config.json from the template if it does not already exist. For the full guided setup flow, use the CLI: squad-reviews setup',
+      skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
@@ -544,6 +560,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_init',
       description: 'Install squad-reviews extension files, SKILL.md, and config template into the target repo. File-only install — no network calls.',
+      skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
@@ -559,7 +576,7 @@ const session = await joinSession({
         const cliPath = join(LIB_DIR, '..', '..', '..', 'bin', 'squad-reviews.mjs');
         const args = ['init', '--json'];
         if (target) args.push('--target', target);
-        const result = spawnSync(process.execPath, [cliPath, ...args], {
+        const result = spawnSync(NODE_BIN, [cliPath, ...args], {
           cwd: REPO_ROOT,
           encoding: 'utf-8',
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -572,6 +589,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_scaffold_gate',
       description: 'Scaffold review gate CI workflows (reusable + caller) for the configured reviewer roles.',
+      skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
@@ -592,6 +610,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_gate_status',
       description: 'Check review gate status for a PR. Returns which roles have approved, which are pending, and unresolved thread count. Call squad_identity_resolve_token first.',
+      skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
@@ -616,6 +635,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_generate_config',
       description: 'Generate a .squad/reviews/config.json scaffold from squad-identity config. Only infers deterministic fields; uses placeholders for ambiguous ones.',
+      skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
@@ -678,6 +698,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_dispatch_review',
       description: 'Request a review from a specific role on a PR. Applies a label and posts a comment to notify the reviewer agent. Call squad_identity_resolve_token first.',
+      skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
