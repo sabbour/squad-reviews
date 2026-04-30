@@ -43,20 +43,26 @@ squad init
 squad-identity setup
 ```
 
-### Step 1: Install and init
+### Step 1: Install and setup
 
 ```bash
 npm install -g @sabbour/squad-reviews
 
-# One-command setup: installs extension, config template, and SKILL.md
-squad-reviews init
+# Full guided setup (recommended): installs files, creates config, scaffolds gate, runs doctor
+squad-reviews setup
 ```
 
 Or install locally per-project:
 
 ```bash
 npm install @sabbour/squad-reviews
-npx squad-reviews init
+npx squad-reviews setup
+```
+
+For advanced use, `init` installs files only without the guided flow:
+
+```bash
+squad-reviews init
 ```
 
 ### Step 2: Configure reviewers
@@ -150,10 +156,10 @@ For PRs, the canonical approval signal is a native GitHub review with state `APP
 
 | Command | Description |
 |---------|-------------|
-| `squad-reviews init` | One-command setup: installs extension, config template, SKILL.md, copilot-instructions |
+| `squad-reviews setup [target-repo] [--force]` | Full guided setup (recommended) |
+| `squad-reviews init [target-repo]` | Install files only (advanced) |
 | `squad-reviews status` | Show current config and registered reviewers |
 | `squad-reviews doctor` | Run health checks (config, identity, labels, GitHub setup) |
-| `squad-reviews setup` | Create `reviews/config.json` from template |
 | `squad-reviews scaffold-gate [--roles r1,r2] [--dry-run]` | Generate review gate CI workflows |
 | `squad-reviews gate-status --pr N [--owner O --repo R]` | Check gate status for a PR |
 | `squad-reviews report --pr N [--owner O --repo R]` | Full review report for a PR |
@@ -166,6 +172,8 @@ For PRs, the canonical approval signal is a native GitHub review with state `APP
 | `squad-reviews execute-issue-review --issue N --role ROLE [--approved] [--body TEXT]` | Post issue review |
 
 All commands accept `--owner` and `--repo` overrides. Run `squad-reviews <command> --help` for full usage.
+
+**`--json` flag:** Human-facing commands (`setup`, `init`, `doctor`) print progress to stderr and only emit JSON to stdout when `--json` is passed. Machine commands (`gate-status`, `report`, etc.) always emit JSON.
 
 ---
 
@@ -184,7 +192,8 @@ These tools are available to Copilot CLI agents when the extension is installed:
 | `squad_reviews_gate_status` | Check gate status for a PR without CI |
 | `squad_reviews_status` | Show config and registered reviewers |
 | `squad_reviews_doctor` | Run health checks |
-| `squad_reviews_setup` | Create config from template |
+| `squad_reviews_setup` | Create config from template (use `--force` to overwrite) |
+| `squad_reviews_init` | Install extension files, SKILL.md, and template into target repo |
 | `squad_reviews_scaffold_gate` | Scaffold review gate CI workflows |
 
 ---

@@ -18,10 +18,10 @@ import { resolveThread } from '../extensions/squad-reviews/lib/resolve-thread.mj
 import { scaffoldGate } from '../extensions/squad-reviews/lib/scaffold-gate.mjs';
 
 const COMMANDS = {
-  init: 'Install squad-reviews into a repo (one-command setup)',
+  setup: 'Full guided setup (recommended)',
+  init: 'Install files only (advanced)',
   status: 'Show config summary',
-  doctor: 'Health check',
-  setup: 'Copy template to reviews/config.json',
+  doctor: 'Run health checks',
   'scaffold-gate': 'Scaffold review gate CI workflows',
   'gate-status': 'Check review gate status for a PR',
   report: 'Show review metrics and status for recent PRs',
@@ -35,14 +35,14 @@ const COMMANDS = {
 };
 
 const COMMAND_USAGE = {
-  init: 'squad-reviews init [target-repo]',
-  status: 'squad-reviews status',
-  doctor: 'squad-reviews doctor',
-  setup: 'squad-reviews setup',
-  'scaffold-gate': 'squad-reviews scaffold-gate [--roles <role1,role2,...>] [--dry-run]',
+  setup: 'squad-reviews setup [target-repo] [--force] [--json]',
+  init: 'squad-reviews init [target-repo] [--json]',
+  status: 'squad-reviews status [--json]',
+  doctor: 'squad-reviews doctor [--json]',
+  'scaffold-gate': 'squad-reviews scaffold-gate [--roles <role1,role2,...>] [--dry-run] [--json]',
   'gate-status': 'squad-reviews gate-status --pr <number> [--roles <role1,role2,...>] [--owner <owner> --repo <repo>]',
   report: 'squad-reviews report [--owner <owner> --repo <repo>]',
-  migrate: 'squad-reviews migrate',
+  migrate: 'squad-reviews migrate [--json]',
   'request-pr-review': 'squad-reviews request-pr-review --pr <number> --reviewer <role> [--owner <owner> --repo <repo>]',
   'execute-pr-review': 'squad-reviews execute-pr-review --pr <number> --role <role> --event <COMMENT|REQUEST_CHANGES|APPROVE> [--body <text>] [--owner <owner> --repo <repo>]',
   'acknowledge-feedback': 'squad-reviews acknowledge-feedback --pr <number> [--owner <owner> --repo <repo>]',
@@ -64,6 +64,11 @@ const REVIEW_EVENTS = new Set(['COMMENT', 'REQUEST_CHANGES', 'APPROVE']);
 
 function printJson(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+/** Write human-readable progress to stderr (never pollutes JSON on stdout). */
+function log(msg) {
+  process.stderr.write(`${msg}\n`);
 }
 
 function printHelp(commandName) {
@@ -403,26 +408,71 @@ async function commandDoctor() {
   };
 }
 
-async function commandSetup() {
-  const repoRoot = findRepoRoot();
-  const templatePath = join(repoRoot, TEMPLATE_RELATIVE_PATH);
-  const configPath = join(repoRoot, CONFIG_RELATIVE_PATH);
+async function commandSetup(values) {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const packageRoot = resolve(__dirname, '..');
+  const target = values?.target ? resolve(values.target) : findRepoRoot();
 
-  await access(templatePath);
-  if (existsSync(configPath)) {
-    throw new Error(`Config already exists at ${configPath}`);
+  log(`\n━━━ Phase 1: Initialize ━━━\n`);
+
+  // Create reviews directory and copy template
+  const reviewsDir = join(target, 'reviews');
+  const templateSrc = join(packageRoot, 'reviews', 'config.json.template');
+  const templateDest = join(target, 'reviews', 'config.json.template');
+  const configDest = join(target, 'reviews', 'config.json');
+
+  await mkdir(reviewsDir, { recursive: true });
+
+  if (existsSync(templateSrc)) {
+    await copyFile(templateSrc, templateDest);
+    log(`  ✓ Template → ${templateDest}`);
   }
 
-  await mkdir(dirname(configPath), { recursive: true });
-  await copyFile(templatePath, configPath);
+  if ((!existsSync(configDest) || values?.force) && existsSync(templateDest)) {
+    await copyFile(templateDest, configDest);
+    log(`  ✓ Config created → ${configDest}`);
+  } else if (existsSync(configDest)) {
+    log(`  ⏭ Config already exists — skipping (use --force to overwrite)`);
+  }
 
-  // Create labels for reviewer roles
+  // Install extension
+  const extSrcDir = join(packageRoot, 'extensions', 'squad-reviews');
+  const extDestDir = join(target, '.github', 'extensions', 'squad-reviews');
+  await mkdir(join(extDestDir, 'lib'), { recursive: true });
+
+  const { readdirSync, copyFileSync } = await import('node:fs');
+  if (existsSync(extSrcDir)) {
+    const extFiles = readdirSync(extSrcDir).filter(f => f.endsWith('.mjs'));
+    for (const file of extFiles) {
+      copyFileSync(join(extSrcDir, file), join(extDestDir, file));
+    }
+    const libDir = join(extSrcDir, 'lib');
+    if (existsSync(libDir)) {
+      const libFiles = readdirSync(libDir).filter(f => f.endsWith('.mjs'));
+      for (const file of libFiles) {
+        copyFileSync(join(libDir, file), join(extDestDir, 'lib', file));
+      }
+    }
+    log(`  ✓ Extension → ${extDestDir}`);
+  }
+
+  // Install SKILL.md
+  const skillSrc = join(packageRoot, 'SKILL.md');
+  const skillDestDir = join(target, '.squad', 'skills', 'squad-reviews');
+  await mkdir(skillDestDir, { recursive: true });
+  if (existsSync(skillSrc)) {
+    copyFileSync(skillSrc, join(skillDestDir, 'SKILL.md'));
+    log(`  ✓ SKILL.md → ${join(skillDestDir, 'SKILL.md')}`);
+  }
+
+  log(`\n━━━ Phase 2: Labels ━━━\n`);
+
   const labelsCreated = [];
   try {
     const { token } = resolveToken(false);
-    if (token) {
-      const config = loadConfig(repoRoot);
-      const github = resolveRepoCoordinates(repoRoot, { required: false });
+    if (token && existsSync(configDest)) {
+      const config = loadConfig(target);
+      const github = resolveRepoCoordinates(target, { required: false });
       if (github.owner && github.repo) {
         for (const role of Object.keys(config.reviewers)) {
           const label = `${role}:approved`;
@@ -441,19 +491,51 @@ async function commandSetup() {
             );
             if (response.ok || response.status === 422) {
               labelsCreated.push(label);
+              log(`  ✓ Label: ${label}`);
             }
           } catch { /* best effort */ }
         }
       }
+    } else {
+      log(`  ⏭ No token — skipping label creation`);
     }
-  } catch { /* labels are best-effort */ }
+  } catch { /* best-effort */ }
+
+  log(`\n━━━ Phase 3: Review Gate ━━━\n`);
+
+  let gateResult = null;
+  try {
+    if (existsSync(configDest)) {
+      gateResult = scaffoldGate(target, { roles: [] });
+      log(`  ✓ Gate workflows scaffolded`);
+    }
+  } catch (e) {
+    log(`  ⏭ Skipped: ${e.message}`);
+  }
+
+  log(`\n━━━ Phase 4: Health Check ━━━\n`);
+
+  const doctorResult = await commandDoctor();
+  for (const check of doctorResult.checks) {
+    log(`  ${check.ok ? '✓' : '✗'} ${check.name}: ${check.details}`);
+  }
+
+  log(`\n✅ squad-reviews setup complete.`);
+  log(`\nNext steps:`);
+  log(`  1. Edit reviews/config.json to map role slugs to your team agents.`);
+  log(`  2. Commit all generated files.`);
+  log(`  3. Set the Review Gate as a required status check in branch protection.`);
 
   return {
-    created: true,
-    repoRoot,
-    templatePath,
-    configPath,
+    initialized: true,
+    target,
+    files: {
+      config: configDest,
+      extension: extDestDir,
+      skill: join(skillDestDir, 'SKILL.md'),
+    },
     labelsCreated,
+    gateScaffolded: gateResult?.scaffolded || false,
   };
 }
 
@@ -598,23 +680,20 @@ async function commandGateStatus(values) {
 async function commandInit(values) {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const packageRoot = resolve(__dirname, '..');
-  const target = values.target ? resolve(values.target) : findRepoRoot();
+  const target = values?.target ? resolve(values.target) : findRepoRoot();
+
+  log(`🔧 Installing squad-reviews into: ${target}\n`);
 
   // Create reviews directory and copy template
   const reviewsDir = join(target, 'reviews');
   const templateSrc = join(packageRoot, 'reviews', 'config.json.template');
   const templateDest = join(target, 'reviews', 'config.json.template');
-  const configDest = join(target, 'reviews', 'config.json');
 
   await mkdir(reviewsDir, { recursive: true });
 
   if (existsSync(templateSrc)) {
     await copyFile(templateSrc, templateDest);
-  }
-
-  // Copy config from template if it doesn't exist
-  if (!existsSync(configDest) && existsSync(templateDest)) {
-    await copyFile(templateDest, configDest);
+    log(`  ✓ Template → ${templateDest}`);
   }
 
   // Install extension
@@ -622,7 +701,6 @@ async function commandInit(values) {
   const extDestDir = join(target, '.github', 'extensions', 'squad-reviews');
   await mkdir(join(extDestDir, 'lib'), { recursive: true });
 
-  // Copy extension files
   const { readdirSync, copyFileSync } = await import('node:fs');
   if (existsSync(extSrcDir)) {
     const extFiles = readdirSync(extSrcDir).filter(f => f.endsWith('.mjs'));
@@ -636,71 +714,28 @@ async function commandInit(values) {
         copyFileSync(join(libDir, file), join(extDestDir, 'lib', file));
       }
     }
+    log(`  ✓ Extension → ${extDestDir}`);
   }
 
   // Install SKILL.md
-  const skillSrc = join(packageRoot, 'squad-reviews', 'SKILL.md');
+  const skillSrc = join(packageRoot, 'SKILL.md');
   const skillDestDir = join(target, '.squad', 'skills', 'squad-reviews');
   await mkdir(skillDestDir, { recursive: true });
   if (existsSync(skillSrc)) {
     copyFileSync(skillSrc, join(skillDestDir, 'SKILL.md'));
+    log(`  ✓ SKILL.md → ${join(skillDestDir, 'SKILL.md')}`);
   }
 
-  // Create labels if token and repo are available
-  const labelsCreated = [];
-  try {
-    const { token } = resolveToken(false);
-    if (token && existsSync(configDest)) {
-      const config = loadConfig(target);
-      const github = resolveRepoCoordinates(target, { required: false });
-      if (github.owner && github.repo) {
-        for (const role of Object.keys(config.reviewers)) {
-          const label = `${role}:approved`;
-          try {
-            const response = await fetch(
-              `https://api.github.com/repos/${github.owner}/${github.repo}/labels`,
-              {
-                method: 'POST',
-                headers: {
-                  Accept: 'application/vnd.github+json',
-                  Authorization: `token ${token}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ name: label, color: '0e8a16', description: `Approved by ${role} reviewer` }),
-              }
-            );
-            if (response.ok || response.status === 422) {
-              labelsCreated.push(label);
-            }
-          } catch { /* best effort */ }
-        }
-      }
-    }
-  } catch { /* labels are best-effort */ }
-
-  // Scaffold gate workflows
-  let gateResult = null;
-  try {
-    if (existsSync(configDest)) {
-      gateResult = scaffoldGate(target, { roles: [] });
-    }
-  } catch { /* gate scaffold is best-effort */ }
+  log(`\n✅ Files installed. Run \`squad-reviews setup\` for the full guided flow.`);
 
   return {
     initialized: true,
     target,
     files: {
-      config: configDest,
+      template: templateDest,
       extension: extDestDir,
       skill: join(skillDestDir, 'SKILL.md'),
     },
-    labelsCreated,
-    gateScaffolded: gateResult?.scaffolded || false,
-    nextSteps: [
-      'Edit reviews/config.json to map role slugs to your team agents.',
-      'Commit all generated files.',
-      'Set the Review Gate as a required status check in branch protection.',
-    ],
   };
 }
 
@@ -803,6 +838,13 @@ async function commandMigrate() {
 }
 
 const COMMAND_HANDLERS = {
+  setup: {
+    options: {
+      target: { type: 'string' },
+      force: { type: 'boolean' },
+    },
+    handler: commandSetup,
+  },
   init: {
     options: {
       target: { type: 'string' },
@@ -816,10 +858,6 @@ const COMMAND_HANDLERS = {
   doctor: {
     options: {},
     handler: commandDoctor,
-  },
-  setup: {
-    options: {},
-    handler: commandSetup,
   },
   'scaffold-gate': {
     options: {
@@ -903,7 +941,11 @@ const COMMAND_HANDLERS = {
 };
 
 async function main(argv = process.argv.slice(2)) {
-  const [commandName, ...restArgs] = argv;
+  // Extract global --json flag before command parsing
+  const jsonFlag = argv.includes('--json');
+  const filteredArgv = argv.filter(a => a !== '--json');
+
+  const [commandName, ...restArgs] = filteredArgv;
 
   if (!commandName || commandName === '--help' || commandName === '-h') {
     printHelp();
@@ -928,7 +970,12 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   const result = await command.handler(parsed.values);
-  printJson(result);
+
+  // Human-facing commands (setup, init, doctor) only emit JSON with --json
+  const humanCommands = new Set(['setup', 'init', 'doctor']);
+  if (result != null && (jsonFlag || !humanCommands.has(commandName))) {
+    printJson(result);
+  }
 }
 
 await main().catch((error) => {

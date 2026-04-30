@@ -348,12 +348,7 @@ function setupConfig() {
     return {
       created: false,
       configPath: CONFIG_PATH,
-      message: 'reviews/config.json already exists.',
-      nextSteps: [
-        'Review the existing config and update reviewer mappings as needed.',
-        'Verify charterPath values point at your team agent charters.',
-        'Run squad_reviews_status or squad_reviews_doctor to validate the setup.',
-      ],
+      message: 'reviews/config.json already exists. Use squad_reviews_init --force to overwrite.',
     };
   }
 
@@ -365,8 +360,7 @@ function setupConfig() {
     copiedFrom: CONFIG_TEMPLATE_PATH,
     nextSteps: [
       'Edit reviews/config.json to map role slugs to your team agents.',
-      'Adjust feedbackSources and threadResolution templates for your workflow.',
-      'Commit reviews/config.json after customization.',
+      'Run squad_reviews_scaffold_gate to generate CI workflows.',
     ],
   };
 }
@@ -510,9 +504,54 @@ joinSession(async session => {
 
   registerJsonTool(session, {
     name: 'squad_reviews_setup',
-    description: 'Create reviews/config.json from the template if it does not already exist.',
-    inputSchema: { type: 'object', properties: {}, required: [] },
-    handler: async () => setupConfig(),
+    description: 'Create reviews/config.json from the template if it does not already exist. For the full guided setup flow, use the CLI: squad-reviews setup',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        force: {
+          type: 'boolean',
+          description: 'Overwrite existing config if present.',
+        },
+      },
+      required: [],
+    },
+    handler: async ({ force }) => {
+      if (force && existsSync(CONFIG_TEMPLATE_PATH)) {
+        mkdirSync(REVIEWS_DIR, { recursive: true });
+        copyFileSync(CONFIG_TEMPLATE_PATH, CONFIG_PATH);
+        return { created: true, configPath: CONFIG_PATH, overwritten: true };
+      }
+      return setupConfig();
+    },
+  });
+
+  registerJsonTool(session, {
+    name: 'squad_reviews_init',
+    description: 'Install squad-reviews extension files, SKILL.md, and config template into the target repo. File-only install — no network calls.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target: {
+          type: 'string',
+          description: 'Target repo root. Defaults to current repo root.',
+        },
+      },
+      required: [],
+    },
+    handler: async ({ target }) => {
+      const { spawnSync } = await import('node:child_process');
+      const cliPath = join(LIB_DIR, '..', '..', '..', 'bin', 'squad-reviews.mjs');
+      const args = ['init', '--json'];
+      if (target) args.push('--target', target);
+      const result = spawnSync(process.execPath, [cliPath, ...args], {
+        cwd: REPO_ROOT,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      if (result.error) throw new Error(result.error.message);
+      if (result.status !== 0) throw new Error((result.stderr || 'init failed').trim());
+      try { return JSON.parse(result.stdout); } catch { return { initialized: true, output: result.stdout }; }
+    },
   });
 
   registerJsonTool(session, {

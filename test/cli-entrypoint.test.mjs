@@ -75,23 +75,21 @@ test('status reports config, token, and GitHub remote defaults', async (t) => {
   assert.equal(output.token.source, 'GH_TOKEN');
 });
 
-test('setup copies the template into reviews/config.json', async (t) => {
+test('init installs files and reports result with --json', async (t) => {
   const workspace = await createWorkspace(t);
   await mkdir(resolve(workspace, '.git'), { recursive: true });
-  await mkdir(resolve(workspace, 'reviews'), { recursive: true });
   await mkdir(resolve(workspace, 'packages', 'app'), { recursive: true });
-  await copyFile(templateSource, resolve(workspace, 'reviews', 'config.json.template'));
 
-  const result = runCli(['setup'], { cwd: resolve(workspace, 'packages', 'app') });
+  const result = runCli(['init', '--json', '--target', workspace], { cwd: resolve(workspace, 'packages', 'app') });
 
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
-  const copiedConfig = await readFile(resolve(workspace, 'reviews', 'config.json'), 'utf8');
-  const template = await readFile(templateSource, 'utf8');
 
-  assert.equal(output.created, true);
-  assert.equal(output.repoRoot, workspace);
-  assert.equal(copiedConfig, template);
+  assert.equal(output.initialized, true);
+  assert.equal(output.target, workspace);
+  assert.ok(output.files.template);
+  assert.ok(output.files.extension);
+  assert.ok(output.files.skill);
 });
 
 test('request-pr-review falls back to git origin when owner/repo are omitted', async (t) => {
