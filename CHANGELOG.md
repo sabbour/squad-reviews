@@ -1,5 +1,29 @@
 # @sabbour/squad-reviews
 
+## 1.2.0
+
+### Minor Changes
+
+- ### Features
+
+  - **Bypass label authority enforcement** — new `bypassLabelAuthority` config field prevents agents from self-applying bypass labels to skip reviews
+  - **Generate config CLI command** — `squad-reviews generate-config` scaffolds `.squad/reviews/config.json` from squad-identity
+  - **Declarative tool registration** — extension tools now surface correctly in Copilot CLI agent tool lists
+  - **Review quality gate** — duplicate guard, conditional gate evaluation
+  - **Config simplification** — streamlined config schema with required token field
+
+  ### Fixes
+
+  - Detect 404/403 on label creation and suggest auth fix
+  - Proper logging for label creation phase
+  - Use `gh auth token` as fallback for CLI token resolution
+  - Token check is now a warning in doctor, not a failure
+
+  ### Refactors
+
+  - Moved `reviews/` directory to `.squad/reviews/` for consistency with squad-identity
+  - Aligned branching strategy to main-only
+
 ## 1.1.0
 
 ### Major Changes
