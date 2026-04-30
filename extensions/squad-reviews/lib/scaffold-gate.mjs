@@ -33,20 +33,19 @@ export function generateReusableWorkflow(roles, config = {}, repoRoot = '.') {
   const botLoginJson = JSON.stringify(botLoginMap);
   const gateRulesJson = JSON.stringify(gateRulesMap);
 
-  return `name: Squad Review Gate (Reusable)
+  return `name: Squad Review Gate
 
 on:
-  workflow_call:
-    inputs:
-      roles:
-        description: 'Comma-separated reviewer role slugs required for merge'
-        required: false
-        type: string
-        default: '${rolesDefault}'
-      pr_number:
-        description: 'Pull request number to check'
-        required: true
-        type: number
+  pull_request_review:
+    types: [submitted, dismissed]
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [labeled, unlabeled, opened, synchronize, reopened]
+
+concurrency:
+  group: squad-review-gate-\${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -57,6 +56,7 @@ permissions:
 jobs:
   review-gate:
     name: Review Gate
+    if: github.event_name != 'issue_comment' || github.event.issue.pull_request
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,8 +68,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const allRoles = '\${{ inputs.roles }}'.split(',').map(r => r.trim()).filter(Boolean);
-            const prNumber = \${{ inputs.pr_number }};
+            const allRoles = '${rolesDefault}'.split(',').map(r => r.trim()).filter(Boolean);
+            const prNumber = context.payload.pull_request?.number || context.payload.issue?.number;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
@@ -324,35 +324,7 @@ jobs:
 }
 
 /**
- * Generate the caller workflow YAML content.
- * @param {string[]} roles - reviewer role slugs
- * @returns {string}
- */
-export function generateCallerWorkflow(roles) {
-  return `name: Review Gate
-
-on:
-  pull_request_review:
-    types: [submitted, dismissed]
-  issue_comment:
-    types: [created]
-  pull_request:
-    types: [labeled, unlabeled, opened, synchronize, reopened]
-
-jobs:
-  gate:
-    # Skip issue_comment events that aren't on PRs
-    if: github.event_name != 'issue_comment' || github.event.issue.pull_request
-    uses: ./.github/workflows/squad-review-gate.yml
-    with:
-      roles: '${roles.join(',')}'
-      pr_number: \${{ github.event.pull_request.number || github.event.issue.number }}
-    secrets: inherit
-`;
-}
-
-/**
- * Scaffold the review gate workflows into the target repo.
+ * Scaffold the review gate workflow into the target repo.
  * @param {string} repoRoot - path to the repository root
  * @param {object} options
  * @param {string[]} [options.roles] - role slugs to require (defaults to all from config)
@@ -374,38 +346,33 @@ export function scaffoldGate(repoRoot, { roles, dryRun = false } = {}) {
   }
 
   const workflowsDir = join(repoRoot, '.github', 'workflows');
-  const reusablePath = join(workflowsDir, 'squad-review-gate.yml');
-  const callerPath = join(workflowsDir, 'review-gate.yml');
+  const workflowPath = join(workflowsDir, 'squad-review-gate.yml');
 
-  const reusableContent = generateReusableWorkflow(effectiveRoles, config, repoRoot);
-  const callerContent = generateCallerWorkflow(effectiveRoles);
+  const workflowContent = generateReusableWorkflow(effectiveRoles, config, repoRoot);
 
   if (dryRun) {
     return {
       scaffolded: false,
       dryRun: true,
       roles: effectiveRoles,
-      files: [reusablePath, callerPath],
+      files: [workflowPath],
       content: {
-        [reusablePath]: reusableContent,
-        [callerPath]: callerContent,
+        [workflowPath]: workflowContent,
       },
     };
   }
 
   mkdirSync(workflowsDir, { recursive: true });
-  writeFileSync(reusablePath, reusableContent, 'utf8');
-  writeFileSync(callerPath, callerContent, 'utf8');
+  writeFileSync(workflowPath, workflowContent, 'utf8');
 
   return {
     scaffolded: true,
     roles: effectiveRoles,
-    files: [reusablePath, callerPath],
-    reusableWorkflow: reusablePath,
-    callerWorkflow: callerPath,
+    files: [workflowPath],
+    workflow: workflowPath,
     nextSteps: [
-      'Commit the generated workflow files.',
-      'Set the Review Gate as a required status check in branch protection.',
+      'Commit the generated workflow file.',
+      'Set squad/review-gate as a required status check in branch protection.',
       'Ensure reviewer bots have write access to submit reviews.',
     ],
   };
