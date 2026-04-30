@@ -78,6 +78,29 @@ All review posts use bot tokens from `squad-identity`.
 
 The reviewing agent's **role slug** determines which bot identity authors the review. Reviews must be posted as the mapped Squad bot, not as the human operator.
 
+### Token resolution for reviews
+
+Before calling `squad_reviews_execute_pr_review` or `squad_reviews_execute_issue_review`, resolve the bot token for your role:
+
+1. Call `squad_identity_resolve_token` with `roleSlug` set to your agent's role slug.
+2. Pass the resolved token as the `token` parameter to the execute tool.
+
+```
+# Step 1: Resolve your bot token
+squad_identity_resolve_token({ roleSlug: "security" })
+# → returns token string
+
+# Step 2: Execute review with that token
+squad_reviews_execute_pr_review({ pr: 42, roleSlug: "security", event: "REQUEST_CHANGES", ..., token: "<resolved>" })
+```
+
+If `token` is omitted, the tool falls back to:
+- `SQUAD_REVIEW_TOKEN_<ROLE>` env var (e.g., `SQUAD_REVIEW_TOKEN_SECURITY`)
+- `SQUAD_REVIEW_TOKEN` env var
+- `GH_TOKEN` / `GITHUB_TOKEN`
+
+Per-role tokens ensure each review is attributed to the correct bot account (e.g., `sqd-zapp[bot]`).
+
 ## 7) Anti-patterns
 
 Avoid these failures:

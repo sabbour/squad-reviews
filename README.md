@@ -322,17 +322,32 @@ Approval is signaled by the `{role}:approved` label on the issue. This supports 
 |-------------------------|------------------------|
 | Per-agent GitHub App credentials | Token for posting reviews as the bot |
 | Bot login mapping (`{app-slug}[bot]`) | `botLogin` field for precise reviewer matching in the gate |
-| `squad_identity_resolve_token` tool | Token resolution in agent workflows |
+| `squad_identity_resolve_token` tool | Token passed to execute tools at runtime |
+
+### Per-role token resolution
+
+The execute tools (`squad_reviews_execute_pr_review`, `squad_reviews_execute_issue_review`) accept an optional `token` parameter. The intended workflow for agents:
+
+```
+1. Call squad_identity_resolve_token({ roleSlug: "security" })
+   → returns the installation token for sqd-zapp[bot]
+
+2. Call squad_reviews_execute_pr_review({ ..., token: "<resolved token>" })
+   → posts the review as sqd-zapp[bot]
+```
+
+This ensures each review is attributed to the correct bot account without squad-reviews needing to access squad-identity internals.
+
+### Token fallback order
+
+If `token` is not passed explicitly:
+
+1. `SQUAD_REVIEW_TOKEN_<ROLE>` (e.g., `SQUAD_REVIEW_TOKEN_SECURITY`)
+2. `SQUAD_REVIEW_TOKEN`
+3. `GH_TOKEN`
+4. `GITHUB_TOKEN`
 
 Install and configure identity first, then map each reviewer role's `botLogin` to the corresponding app-slug from `squad-identity`.
-
-### Token resolution
-
-The token is resolved in priority order:
-1. `SQUAD_REVIEW_TOKEN` environment variable
-2. `GH_TOKEN` environment variable
-3. `GITHUB_TOKEN` environment variable
-4. `squad_identity_resolve_token` tool call (in agent workflows)
 
 ---
 

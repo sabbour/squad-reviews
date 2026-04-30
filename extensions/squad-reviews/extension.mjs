@@ -16,6 +16,7 @@ import { executePrReview } from './lib/execute-review.mjs';
 import { executeIssueReview } from './lib/issue-review.mjs';
 import { loadConfig } from './lib/review-config.mjs';
 import { requestIssueReview, requestPrReview } from './lib/request-review.mjs';
+import { resolveRoleToken } from './lib/resolve-role-token.mjs';
 import { resolveThread } from './lib/resolve-thread.mjs';
 import { scaffoldGate } from './lib/scaffold-gate.mjs';
 
@@ -398,13 +399,16 @@ joinSession(async session => {
         roleSlug: { type: 'string' },
         event: { type: 'string', enum: ['COMMENT', 'REQUEST_CHANGES', 'APPROVE'] },
         reviewBody: { type: 'string' },
+        token: { type: 'string', description: 'GitHub token for this role (from squad_identity_resolve_token). Falls back to env vars if omitted.' },
         owner: { type: 'string' },
         repo: { type: 'string' },
       },
       required: ['pr', 'roleSlug', 'event', 'owner', 'repo'],
     },
-    handler: async ({ pr, roleSlug, event, reviewBody, owner, repo }) =>
-      executePrReview(REPO_ROOT, requireToken(), { pr, roleSlug, event, reviewBody, owner, repo }),
+    handler: async ({ pr, roleSlug, event, reviewBody, token: explicitToken, owner, repo }) => {
+      const token = resolveRoleToken(roleSlug, explicitToken);
+      return executePrReview(REPO_ROOT, token, { pr, roleSlug, event, reviewBody, owner, repo });
+    },
   });
 
   registerJsonTool(session, {
@@ -478,13 +482,16 @@ joinSession(async session => {
         roleSlug: { type: 'string' },
         reviewBody: { type: 'string' },
         approved: { type: 'boolean' },
+        token: { type: 'string', description: 'GitHub token for this role (from squad_identity_resolve_token). Falls back to env vars if omitted.' },
         owner: { type: 'string' },
         repo: { type: 'string' },
       },
       required: ['issue', 'roleSlug', 'reviewBody', 'approved', 'owner', 'repo'],
     },
-    handler: async ({ issue, roleSlug, reviewBody, approved, owner, repo }) =>
-      executeIssueReview(REPO_ROOT, requireToken(), { issue, roleSlug, reviewBody, approved, owner, repo }),
+    handler: async ({ issue, roleSlug, reviewBody, approved, token: explicitToken, owner, repo }) => {
+      const token = resolveRoleToken(roleSlug, explicitToken);
+      return executeIssueReview(REPO_ROOT, token, { issue, roleSlug, reviewBody, approved, owner, repo });
+    },
   });
 
   registerJsonTool(session, {

@@ -16,6 +16,7 @@ import {
 import { checkGateStatus } from '../extensions/squad-reviews/lib/gate-status.mjs';
 import { appendAuditEntry } from '../extensions/squad-reviews/lib/audit-log.mjs';
 import { migrateConfig, LATEST_SCHEMA_VERSION } from '../extensions/squad-reviews/lib/review-config.mjs';
+import { resolveRoleToken } from '../extensions/squad-reviews/lib/resolve-role-token.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = join(__dirname, '..', 'bin', 'squad-reviews.mjs');
@@ -208,5 +209,60 @@ describe('CLI integration - migrate', () => {
     // Verify file was updated
     const config = JSON.parse(readFileSync(join(tempDir, 'reviews', 'config.json'), 'utf8'));
     assert.equal(config.schemaVersion, LATEST_SCHEMA_VERSION);
+  });
+});
+
+describe('resolveRoleToken', () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    // Restore env
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it('returns explicit token when provided', () => {
+    const token = resolveRoleToken('security', 'explicit-token-123');
+    assert.equal(token, 'explicit-token-123');
+  });
+
+  it('returns per-role env var when set', () => {
+    process.env.SQUAD_REVIEW_TOKEN_SECURITY = 'role-specific-token';
+    const token = resolveRoleToken('security');
+    assert.equal(token, 'role-specific-token');
+  });
+
+  it('falls back to SQUAD_REVIEW_TOKEN', () => {
+    delete process.env.SQUAD_REVIEW_TOKEN_CODEREVIEW;
+    process.env.SQUAD_REVIEW_TOKEN = 'generic-token';
+    const token = resolveRoleToken('codereview');
+    assert.equal(token, 'generic-token');
+  });
+
+  it('falls back to GH_TOKEN', () => {
+    delete process.env.SQUAD_REVIEW_TOKEN_DOCS;
+    delete process.env.SQUAD_REVIEW_TOKEN;
+    process.env.GH_TOKEN = 'gh-token';
+    const token = resolveRoleToken('docs');
+    assert.equal(token, 'gh-token');
+  });
+
+  it('throws with guidance when no token available', () => {
+    delete process.env.SQUAD_REVIEW_TOKEN_ARCHITECTURE;
+    delete process.env.SQUAD_REVIEW_TOKEN;
+    delete process.env.GH_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+    assert.throws(
+      () => resolveRoleToken('architecture'),
+      /squad_identity_resolve_token/
+    );
+  });
+
+  it('normalizes role slug with hyphens to env var format', () => {
+    process.env.SQUAD_REVIEW_TOKEN_CODE_REVIEW = 'hyphen-role-token';
+    const token = resolveRoleToken('code-review');
+    assert.equal(token, 'hyphen-role-token');
   });
 });

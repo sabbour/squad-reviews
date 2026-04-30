@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { access, copyFile, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -251,6 +251,44 @@ function resolveToken(required = false) {
   };
 }
 
+/**
+ * Resolve a token for a specific reviewer role via squad-identity CLI.
+ * Falls back to generic env var token if squad-identity is unavailable.
+ * @param {string} roleSlug - reviewer role slug
+ * @returns {{ token: string, source: string }}
+ */
+function resolveRoleTokenCli(roleSlug) {
+  // Per-role env var first (e.g., SQUAD_REVIEW_TOKEN_SECURITY)
+  const roleEnvKey = `SQUAD_REVIEW_TOKEN_${roleSlug.toUpperCase().replace(/-/g, '_')}`;
+  if (process.env[roleEnvKey]) {
+    return { token: process.env[roleEnvKey].trim(), source: roleEnvKey };
+  }
+
+  // Try squad-identity CLI to resolve per-role token
+  try {
+    const repoRoot = findRepoRoot();
+    const config = loadConfig(repoRoot);
+    const reviewer = config.reviewers[roleSlug];
+    if (reviewer?.agent) {
+      const result = spawnSync('squad-identity', ['resolve-token', '--role', reviewer.agent], {
+        cwd: repoRoot,
+        timeout: 15_000,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      const token = result?.stdout?.trim();
+      if (token && result.status === 0) {
+        return { token, source: `squad-identity (${reviewer.agent})` };
+      }
+    }
+  } catch {
+    // squad-identity not available — fall through
+  }
+
+  // Fall back to generic token
+  return resolveToken(true);
+}
+
 function inspectConfig(repoRoot) {
   const configPath = join(repoRoot, CONFIG_RELATIVE_PATH);
   const summary = {
@@ -442,11 +480,12 @@ async function commandExecutePrReview(values) {
     repo: values.repo,
     required: true,
   });
-  const { token } = resolveToken(true);
+  const roleSlug = normalizeNonEmptyString(values.role, 'role');
+  const { token } = resolveRoleTokenCli(roleSlug);
 
   return executePrReview(repoRoot, token, {
     pr: normalizePositiveInteger(values.pr, 'pr'),
-    roleSlug: normalizeNonEmptyString(values.role, 'role'),
+    roleSlug,
     event: ensureAllowedValue(values.event, REVIEW_EVENTS, 'event'),
     reviewBody: values.body,
     owner: github.owner,
@@ -513,11 +552,12 @@ async function commandExecuteIssueReview(values) {
     repo: values.repo,
     required: true,
   });
-  const { token } = resolveToken(true);
+  const roleSlug = normalizeNonEmptyString(values.role, 'role');
+  const { token } = resolveRoleTokenCli(roleSlug);
 
   return executeIssueReview(repoRoot, token, {
     issue: normalizePositiveInteger(values.issue, 'issue'),
-    roleSlug: normalizeNonEmptyString(values.role, 'role'),
+    roleSlug,
     reviewBody: values.body,
     approved: values.approved === true,
     owner: github.owner,
