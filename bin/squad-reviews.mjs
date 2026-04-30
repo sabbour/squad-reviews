@@ -20,6 +20,7 @@ import { scaffoldGate } from '../extensions/squad-reviews/lib/scaffold-gate.mjs'
 const COMMANDS = {
   setup: 'Full guided setup (recommended)',
   init: 'Install files only (advanced)',
+  'generate-config': 'Generate reviews/config.json from squad-identity',
   status: 'Show config summary',
   doctor: 'Run health checks',
   'scaffold-gate': 'Scaffold review gate CI workflows',
@@ -36,6 +37,7 @@ const COMMANDS = {
 const COMMAND_USAGE = {
   setup: 'squad-reviews setup [target-repo] [--force] [--json]',
   init: 'squad-reviews init [target-repo] [--json]',
+  'generate-config': 'squad-reviews generate-config [--roles <role1,role2,...>] [--force] [--json]',
   status: 'squad-reviews status [--json]',
   doctor: 'squad-reviews doctor [--json]',
   'scaffold-gate': 'squad-reviews scaffold-gate [--roles <role1,role2,...>] [--dry-run] [--json]',
@@ -539,8 +541,8 @@ async function commandSetup(values) {
 
   log(`\n✅ squad-reviews setup complete.`);
   log(`\nNext steps:`);
-  log(`  1. In a Copilot CLI session, ask the agent to call squad_reviews_generate_config`);
-  log(`     to scaffold reviews/config.json from your squad-identity config.`);
+  log(`  1. Run: squad-reviews generate-config`);
+  log(`     This scaffolds reviews/config.json from your squad-identity config.`);
   log(`     Then edit dimensions and gate rules for each role.`);
   log(`  2. Commit all generated files.`);
   log(`  3. Set the Review Gate as a required status check in branch protection.`);
@@ -826,6 +828,70 @@ async function commandReport(values) {
   };
 }
 
+async function commandGenerateConfig(values) {
+  const repoRoot = findRepoRoot();
+  const identityPath = join(repoRoot, '.squad', 'identity', 'config.json');
+
+  if (!existsSync(identityPath)) {
+    throw new Error('squad-identity not configured. Run squad-identity setup first.');
+  }
+
+  const identity = JSON.parse(readFileSync(identityPath, 'utf8'));
+  const allRoles = Object.keys(identity.apps || {});
+  const selectedRoles = values.roles
+    ? values.roles.split(',').map(r => r.trim()).filter(r => allRoles.includes(r))
+    : allRoles;
+
+  if (selectedRoles.length === 0) {
+    throw new Error(`No matching roles found. Available: ${allRoles.join(', ')}`);
+  }
+
+  // Build reviewers section from identity
+  const agentNameMap = identity.agentNameMap || {};
+  const reverseMap = Object.fromEntries(
+    Object.entries(agentNameMap).map(([agent, role]) => [role, agent])
+  );
+
+  const reviewers = {};
+  for (const role of selectedRoles) {
+    const agent = reverseMap[role] || 'AGENT_NAME';
+    reviewers[role] = {
+      agent,
+      dimension: 'TODO: describe review dimension',
+      charterPath: `.squad/agents/${agent}/charter.md`,
+      gateRule: { required: 'always' },
+    };
+  }
+
+  const config = {
+    schemaVersion: '1.1.0',
+    reviewers,
+    threadResolution: {
+      requireReplyBeforeResolve: true,
+      templates: {
+        addressed: 'Addressed in {sha}: {description}',
+        dismissed: 'Dismissed: {justification}',
+      },
+    },
+    feedbackSources: ['squad-agents', 'humans', 'github-copilot-bot'],
+  };
+
+  const configPath = join(repoRoot, 'reviews', 'config.json');
+  if (existsSync(configPath) && !values.force) {
+    throw new Error(`${configPath} already exists. Use --force to overwrite.`);
+  }
+
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  mkdirSync(join(repoRoot, 'reviews'), { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+
+  log(`✓ Generated ${configPath}`);
+  log(`  Roles: ${selectedRoles.join(', ')}`);
+  log(`  Edit "dimension" and "gateRule" fields before committing.`);
+
+  return { config, path: configPath, note: 'Edit dimension and gateRule fields for each role before committing.' };
+}
+
 const COMMAND_HANDLERS = {
   setup: {
     options: {
@@ -839,6 +905,13 @@ const COMMAND_HANDLERS = {
       target: { type: 'string' },
     },
     handler: commandInit,
+  },
+  'generate-config': {
+    options: {
+      roles: { type: 'string' },
+      force: { type: 'boolean' },
+    },
+    handler: commandGenerateConfig,
   },
   status: {
     options: {},
