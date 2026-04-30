@@ -229,7 +229,7 @@ describe('acknowledge-feedback.mjs', () => {
     assert.deepEqual(result.unresolvedThreads, [
       {
         threadId: 'PRRT_human',
-        commentId: 'PRRC_node_101',
+        commentId: 101,
         author: 'octocat',
         source: 'humans',
         body: 'Human feedback.',

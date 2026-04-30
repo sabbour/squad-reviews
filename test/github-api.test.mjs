@@ -93,8 +93,7 @@ describe('github-api.mjs', () => {
     assert.deepEqual(threads, [
       {
         threadId: 'PRRT_123',
-        commentId: 'PRRC_node_101',
-        commentDatabaseId: 101,
+        commentId: 101,
         author: 'review-bot',
         body: 'Please rename this variable.',
         path: 'src/app.mjs',
