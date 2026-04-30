@@ -229,23 +229,23 @@ function resolveToken(required = false) {
     }
   }
 
-  // Try auto-resolving via squad-identity if available
+  // Try `gh auth token` as fallback (user has gh CLI authenticated)
   try {
-    const identityLib = join(findRepoRoot(), '.github', 'extensions', 'squad-identity', 'lib', 'resolve-token.mjs');
-    if (existsSync(identityLib)) {
-      // squad-identity is installed — hint to the user
-      if (required) {
-        throw new Error(
-          `Missing GitHub token; set one of ${TOKEN_ENV_VARS.join(', ')} or use squad_identity_resolve_token tool`
-        );
-      }
+    const result = execFileSync('gh', ['auth', 'token'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000,
+    });
+    const ghToken = result.trim();
+    if (ghToken) {
+      return { token: ghToken, source: 'gh auth token' };
     }
-  } catch (e) {
-    if (required && e.message.includes('Missing GitHub token')) throw e;
+  } catch {
+    // gh not installed or not authenticated — continue
   }
 
   if (required) {
-    throw new Error(`Missing GitHub token; set one of ${TOKEN_ENV_VARS.join(', ')}`);
+    throw new Error(`Missing GitHub token; set one of ${TOKEN_ENV_VARS.join(', ')} or authenticate with \`gh auth login\``);
   }
 
   return {
@@ -379,7 +379,7 @@ async function commandDoctor() {
       warn: !token.token,
       details: token.token
         ? token.source
-        : `No env var set (agents use squad_identity_resolve_token at runtime; for CLI, set ${TOKEN_ENV_VARS.join(', ')})`,
+        : `No token available (authenticate with \`gh auth login\` or set ${TOKEN_ENV_VARS.join(', ')})`,
     },
   ];
 
