@@ -1,5 +1,12 @@
 # @sabbour/squad-reviews
 
+## 1.3.2
+
+### Patch Changes
+
+- fix(tests): align test expectations with numeric `commentId` format returned by `fetchPrThreads`
+- fix(squad-identity): use tools array pattern instead of deprecated `session.registerTool()`
+
 ## 1.3.0
 
 ### Minor Changes
