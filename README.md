@@ -133,14 +133,12 @@ squad-reviews doctor   # run health checks
 
 ## How it works
 
-```
-┌─────────┐     ┌─────────┐     ┌─────────────┐     ┌─────────┐
-│ Request │ ──▶ │ Execute │ ──▶ │ Acknowledge │ ──▶ │ Resolve │
-└─────────┘     └─────────┘     └─────────────┘     └─────────┘
-  Route PR/       Reviewer         Implementer        Reply +
-  issue to        posts native     fetches unresolved resolve as
-  reviewer role   GitHub review    threads            addressed/
-                                                      dismissed
+```mermaid
+flowchart LR
+    A[Request] -->|Route PR/issue to reviewer role| B[Execute]
+    B -->|Reviewer posts native GitHub review| C[Acknowledge]
+    C -->|Implementer fetches unresolved threads| D[Resolve]
+    D -->|Reply + resolve as addressed/dismissed| A
 ```
 
 1. **Request** — route a PR or issue to a configured reviewer role.
@@ -276,6 +274,20 @@ Use `--dry-run` to preview without writing files.
 
 Roles with `gateRule.required: "conditional"` are evaluated at runtime:
 
+```mermaid
+flowchart TD
+    Start[PR event triggers gate] --> CheckRole{For each role}
+    CheckRole --> Always[required: always] --> MustApprove[Require approval]
+    CheckRole --> Optional[required: optional] --> Skip[Skip — not required]
+    CheckRole --> Conditional[required: conditional]
+    Conditional --> BypassLabel{PR has bypass label?}
+    BypassLabel -->|Yes| Skip
+    BypassLabel -->|No| PathCheck{requiredWhen.paths match changed files?}
+    PathCheck -->|Yes| MustApprove
+    PathCheck -->|No paths configured| MustApprove
+    PathCheck -->|No match| Skip
+```
+
 - The gate fetches changed files and PR labels
 - If `requiredWhen.paths` is configured, the role is only required when changed files match those globs
 - If `bypassWhen.labels` or `bypassLabels` match a PR label, the role is skipped
@@ -327,11 +339,20 @@ Approval is signaled by the `{role}:approved` label on the issue. This supports 
 
 `@sabbour/squad-reviews` depends on `@sabbour/squad-identity` as an optional peer because review execution needs a bot identity and token source:
 
-| squad-identity provides | squad-reviews consumes |
-|-------------------------|------------------------|
-| Per-agent GitHub App credentials | Token for posting reviews as the bot |
-| Bot login mapping (`{app-slug}[bot]`) | `botLogin` field for precise reviewer matching in the gate |
-| `squad_identity_resolve_token` tool | Token passed to execute tools at runtime |
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant squad-identity
+    participant squad-reviews
+    participant GitHub
+
+    Agent->>squad-identity: resolve_token(role: "security")
+    squad-identity-->>Agent: installation token for sqd-zapp[bot]
+    Agent->>squad-reviews: execute_pr_review(pr, token, event: APPROVE)
+    squad-reviews->>GitHub: POST review as sqd-zapp[bot]
+    GitHub-->>squad-reviews: review created
+    squad-reviews-->>Agent: { submitted: true }
+```
 
 ### Per-role token resolution
 
@@ -381,6 +402,24 @@ npm run lint      # ESLint
 ```
 
 ### Project structure
+
+```mermaid
+graph TD
+    CLI[bin/squad-reviews.mjs<br/>CLI entrypoint] --> Config[lib/review-config.mjs<br/>Config loading & validation]
+    CLI --> Gate[lib/scaffold-gate.mjs<br/>Gate workflow generation]
+    CLI --> Status[lib/gate-status.mjs<br/>Gate status checking]
+    CLI --> Token[lib/resolve-role-token.mjs<br/>Per-role token resolution]
+
+    Ext[extension.mjs<br/>Copilot CLI extension] --> Config
+    Ext --> Gate
+    Ext --> Status
+    Ext --> Exec[lib/execute-review.mjs<br/>PR/Issue review execution]
+    Ext --> Resolve[lib/resolve-thread.mjs<br/>Thread resolution]
+    Ext --> Audit[lib/audit-log.mjs<br/>Append-only JSONL audit]
+
+    Exec --> Audit
+    Resolve --> Audit
+```
 
 ```
 bin/                     CLI entrypoint
