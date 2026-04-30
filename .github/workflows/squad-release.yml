@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    branches: [main, insider]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - run: npm test
+
+      # On main: publishes with --tag latest (default changesets behavior)
+      - name: Create Release PR or Publish (npmjs)
+        if: github.ref == 'refs/heads/main'
+        id: changesets-stable
+        uses: changesets/action@v1
+        with:
+          publish: npx changeset publish
+          title: "chore: version packages"
+          commit: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+
+      # On insider: publishes with --tag insider (pre-release channel)
+      - name: Publish Insider Pre-release (npmjs)
+        if: github.ref == 'refs/heads/insider'
+        id: changesets-insider
+        uses: changesets/action@v1
+        with:
+          publish: npx changeset publish
+          title: "chore: version packages (insider)"
+          commit: "chore: version packages (insider)"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+
+      # Publish to GitHub Packages (mirror)
+      - name: Setup GitHub Packages registry
+        if: steps.changesets-stable.outputs.published == 'true' || steps.changesets-insider.outputs.published == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://npm.pkg.github.com
+
+      - name: Publish to GitHub Packages
+        if: steps.changesets-stable.outputs.published == 'true' || steps.changesets-insider.outputs.published == 'true'
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
