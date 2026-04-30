@@ -4,6 +4,9 @@
 [![CI](https://github.com/sabbour/squad-reviews/actions/workflows/squad-ci.yml/badge.svg)](https://github.com/sabbour/squad-reviews/actions/workflows/squad-ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
+> [!WARNING]
+> **Experimental** — This project is under active development. APIs, config schemas, and CLI commands may change without notice.
+
 > Config-driven review governance for [Squad](https://github.com/bradygaster/squad) agents — PRs, issues, review threads, and reviewer routing.
 
 ## Why
