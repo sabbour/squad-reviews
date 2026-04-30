@@ -15,16 +15,21 @@ import { loadConfig } from './review-config.mjs';
 export function generateReusableWorkflow(roles, config = {}) {
   const rolesDefault = roles.join(',');
 
-  // Build bot-login mapping from config if available
+  // Build role metadata from config
   const botLoginMap = {};
+  const gateRulesMap = {};
   for (const role of roles) {
     const reviewer = config.reviewers?.[role];
     if (reviewer?.botLogin) {
       botLoginMap[role] = reviewer.botLogin;
     }
+    if (reviewer?.gateRule) {
+      gateRulesMap[role] = reviewer.gateRule;
+    }
   }
 
   const botLoginJson = JSON.stringify(botLoginMap);
+  const gateRulesJson = JSON.stringify(gateRulesMap);
 
   return `name: Squad Review Gate (Reusable)
 
@@ -53,13 +58,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install squad-reviews
-        run: npx --yes @sabbour/squad-reviews gate-status --help || true
-
       - name: Check review approvals and unresolved threads
         env:
           GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
@@ -67,16 +65,109 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const roles = '\${{ inputs.roles }}'.split(',').map(r => r.trim()).filter(Boolean);
+            const allRoles = '\${{ inputs.roles }}'.split(',').map(r => r.trim()).filter(Boolean);
             const prNumber = \${{ inputs.pr_number }};
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            // Bot login mapping from config (injected at scaffold time)
+            // Config injected at scaffold time
             const botLoginMap = ${botLoginJson};
+            const gateRules = ${gateRulesJson};
 
             core.info(\`Checking review gate for PR #\${prNumber}\`);
-            core.info(\`Required roles: \${roles.join(', ')}\`);
+
+            // Fetch PR details (labels + changed files)
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+            const prLabels = pr.labels.map(l => l.name.toLowerCase());
+
+            // Clear stale approval labels on synchronize (new commits invalidate approvals)
+            if (context.eventName === 'pull_request' && context.payload.action === 'synchronize') {
+              core.info('New commits detected — clearing stale approval labels');
+              for (const role of allRoles) {
+                const label = \`\${role}:approved\`;
+                try {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number: prNumber, name: label });
+                  core.info(\`Removed stale label: \${label}\`);
+                } catch (e) {
+                  // Label may not exist — that's fine
+                }
+              }
+            }
+
+            // Fetch changed files for conditional gate rules
+            const changedFiles = await github.paginate(
+              github.rest.pulls.listFiles,
+              { owner, repo, pull_number: prNumber, per_page: 100 }
+            );
+            const changedPaths = changedFiles.map(f => f.filename);
+
+            // Determine which roles are actually required based on gate rules
+            function matchesGlob(path, pattern) {
+              const regex = new RegExp(
+                '^' + pattern.replace(/\\*\\*/g, '@@GLOBSTAR@@')
+                  .replace(/\\*/g, '[^/]*')
+                  .replace(/@@GLOBSTAR@@/g, '.*')
+                  .replace(/\\?/g, '[^/]') + '$'
+              );
+              return regex.test(path);
+            }
+
+            function anyPathMatches(paths, patterns) {
+              if (!patterns || patterns.length === 0) return false;
+              return paths.some(p => patterns.some(pat => matchesGlob(p, pat)));
+            }
+
+            const requiredRoles = [];
+            const skippedRoles = [];
+
+            for (const role of allRoles) {
+              const rule = gateRules[role];
+
+              if (!rule || rule.required === 'always') {
+                requiredRoles.push(role);
+                continue;
+              }
+
+              if (rule.required === 'optional') {
+                skippedRoles.push({ role, reason: 'optional' });
+                continue;
+              }
+
+              // Conditional logic
+              if (rule.required === 'conditional') {
+                // Check bypass labels (e.g., skip-docs, docs:not-applicable)
+                const bypassLabels = rule.bypassLabels || [];
+                if (bypassLabels.some(bl => prLabels.includes(bl.toLowerCase()))) {
+                  skippedRoles.push({ role, reason: \`bypass label present\` });
+                  continue;
+                }
+
+                // Check bypassWhen.labels (e.g., squad:chore-auto)
+                const bypassWhenLabels = rule.bypassWhen?.labels || [];
+                const hasBypassLabel = bypassWhenLabels.some(bl => prLabels.includes(bl.toLowerCase()));
+
+                // Check requiredWhen.paths
+                const requiredPaths = rule.requiredWhen?.paths || [];
+                const hasRequiredPaths = anyPathMatches(changedPaths, requiredPaths);
+
+                if (hasBypassLabel && !hasRequiredPaths) {
+                  skippedRoles.push({ role, reason: \`bypass label + no matching paths\` });
+                  continue;
+                }
+
+                if (requiredPaths.length > 0 && !hasRequiredPaths) {
+                  skippedRoles.push({ role, reason: \`no files match requiredWhen paths\` });
+                  continue;
+                }
+
+                requiredRoles.push(role);
+              }
+            }
+
+            core.info(\`Required roles: \${requiredRoles.join(', ') || '(none)'}\`);
+            for (const { role, reason } of skippedRoles) {
+              core.info(\`Skipped role \${role}: \${reason}\`);
+            }
 
             // Fetch ALL reviews with pagination
             const allReviews = await github.paginate(
@@ -84,14 +175,13 @@ jobs:
               { owner, repo, pull_number: prNumber, per_page: 100 }
             );
 
-            // For each role, find the LATEST review from that role's bot
+            // For each required role, find the LATEST review
             const approvedRoles = new Set();
             const missingRoles = [];
 
-            for (const role of roles) {
+            for (const role of requiredRoles) {
               const botLogin = botLoginMap[role] || null;
 
-              // Filter reviews from this role's reviewer
               const roleReviews = allReviews.filter(r => {
                 const login = (r.user?.login || '').toLowerCase();
                 if (botLogin) return login === botLogin.toLowerCase();
@@ -102,7 +192,6 @@ jobs:
                 );
               });
 
-              // Sort by submitted_at descending — only the latest review counts
               roleReviews.sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at));
               const latestReview = roleReviews[0];
 
@@ -142,7 +231,6 @@ jobs:
                   owner, repo, issue_number: prNumber,
                   labels: [\`\${role}:approved\`]
                 });
-                core.info(\`Applied label: \${role}:approved\`);
               } catch (e) {
                 core.warning(\`Could not apply label \${role}:approved: \${e.message}\`);
               }
@@ -150,10 +238,14 @@ jobs:
 
             // Build summary
             let summary = '## 🔒 Review Gate Summary\\n\\n';
-            summary += \`| Role | Status |\\n|------|--------|\\n\`;
-            for (const role of roles) {
+            summary += \`| Role | Status | Rule |\\n|------|--------|------|\\n\`;
+            for (const role of requiredRoles) {
               const status = approvedRoles.has(role) ? '✅ Approved' : '⏳ Pending';
-              summary += \`| \${role} | \${status} |\\n\`;
+              const rule = gateRules[role]?.required || 'always';
+              summary += \`| \${role} | \${status} | \${rule} |\\n\`;
+            }
+            for (const { role, reason } of skippedRoles) {
+              summary += \`| \${role} | ⏭️ Skipped | \${reason} |\\n\`;
             }
             summary += \`\\n**Unresolved threads:** \${unresolvedCount}\\n\`;
 

@@ -19,6 +19,40 @@ function assertNonEmptyString(value, fieldPath) {
   }
 }
 
+const VALID_GATE_REQUIRED_VALUES = ['always', 'conditional', 'optional'];
+
+function validateGateRule(roleSlug, gateRule) {
+  if (!isPlainObject(gateRule)) {
+    invalidConfig(`reviewers.${roleSlug}.gateRule must be an object`);
+  }
+
+  if (!VALID_GATE_REQUIRED_VALUES.includes(gateRule.required)) {
+    invalidConfig(`reviewers.${roleSlug}.gateRule.required must be one of: ${VALID_GATE_REQUIRED_VALUES.join(', ')}`);
+  }
+
+  if (gateRule.bypassWhen !== undefined) {
+    if (!isPlainObject(gateRule.bypassWhen)) {
+      invalidConfig(`reviewers.${roleSlug}.gateRule.bypassWhen must be an object`);
+    }
+    if (gateRule.bypassWhen.labels !== undefined && !Array.isArray(gateRule.bypassWhen.labels)) {
+      invalidConfig(`reviewers.${roleSlug}.gateRule.bypassWhen.labels must be an array`);
+    }
+  }
+
+  if (gateRule.requiredWhen !== undefined) {
+    if (!isPlainObject(gateRule.requiredWhen)) {
+      invalidConfig(`reviewers.${roleSlug}.gateRule.requiredWhen must be an object`);
+    }
+    if (gateRule.requiredWhen.paths !== undefined && !Array.isArray(gateRule.requiredWhen.paths)) {
+      invalidConfig(`reviewers.${roleSlug}.gateRule.requiredWhen.paths must be an array`);
+    }
+  }
+
+  if (gateRule.bypassLabels !== undefined && !Array.isArray(gateRule.bypassLabels)) {
+    invalidConfig(`reviewers.${roleSlug}.gateRule.bypassLabels must be an array`);
+  }
+}
+
 function validateReviewer(roleSlug, reviewer) {
   if (!isPlainObject(reviewer)) {
     invalidConfig(`reviewers.${roleSlug} must be an object`);
@@ -33,6 +67,11 @@ function validateReviewer(roleSlug, reviewer) {
     if (typeof reviewer.botLogin !== 'string' || reviewer.botLogin.trim() === '') {
       invalidConfig(`reviewers.${roleSlug}.botLogin must be a non-empty string when provided`);
     }
+  }
+
+  // gateRule is optional
+  if (reviewer.gateRule !== undefined) {
+    validateGateRule(roleSlug, reviewer.gateRule);
   }
 }
 
@@ -132,6 +171,7 @@ export function resolveReviewer(config, roleSlug) {
     dimension: reviewer.dimension,
     charterPath: reviewer.charterPath,
     botLogin: reviewer.botLogin || null,
+    gateRule: reviewer.gateRule || null,
   };
 }
 

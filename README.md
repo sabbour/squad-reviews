@@ -8,67 +8,93 @@
 
 ## Why
 
-Without `squad-reviews`, review governance is ad-hoc: agents don't know who reviews what, feedback threads get lost, and there's no enforced reply-before-resolve discipline. With a config-driven review system, every PR and issue gets routed to the right reviewer by role, feedback must be explicitly addressed or dismissed, and the full review lifecycle is traceable.
+Without `squad-reviews`, review governance is ad-hoc: agents don't know who reviews what, feedback threads get lost, and there's no enforced reply-before-resolve discipline. With a config-driven review system:
+
+- Every PR and issue is routed to the right reviewer **by role**
+- Feedback must be explicitly **addressed** or **dismissed** — no silent closes
+- A CI gate blocks merges until all required roles have approved via **native GitHub reviews**
+- Conditional requirements skip roles when they're not relevant (bypass labels, file-path triggers)
+- The full review lifecycle is traceable through an append-only audit log
+
+---
 
 ## Prerequisites
 
 | Requirement | Check |
 |-------------|-------|
+| [Squad](https://github.com/bradygaster/squad) installed and initialized | `.squad/team.md` exists |
 | Node.js ≥ 18 | `node --version` |
 | [`@sabbour/squad-identity`](https://www.npmjs.com/package/@sabbour/squad-identity) installed and configured | `squad-identity doctor` |
 | GitHub token | `SQUAD_REVIEW_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` available |
 
-## Installation
+---
+
+## Quick start
+
+### Step 0: Squad + squad-identity
+
+[Squad](https://github.com/bradygaster/squad) must be initialized in your repo. Each
+reviewer agent needs a bot identity provisioned by `squad-identity`:
+
+```bash
+npm install -g @bradygaster/squad-cli @sabbour/squad-identity
+cd /path/to/your-project
+squad init
+squad-identity setup
+```
+
+### Step 1: Install and init
+
+```bash
+npm install -g @sabbour/squad-reviews
+
+# One-command setup: installs extension, config template, and SKILL.md
+squad-reviews init
+```
+
+Or install locally per-project:
 
 ```bash
 npm install @sabbour/squad-reviews
+npx squad-reviews init
 ```
 
-Install the peer dependency if you have not already:
+### Step 2: Configure reviewers
 
-```bash
-npm install @sabbour/squad-identity
-```
-
-Copy the extension into your repo and add the config template:
-
-```bash
-mkdir -p .github/extensions reviews
-cp -R node_modules/@sabbour/squad-reviews/extensions/squad-reviews .github/extensions/
-cp node_modules/@sabbour/squad-reviews/reviews/config.json.template reviews/config.json.template
-```
-
-## Quick Start
-
-1. Create `reviews/config.json` from the template:
-
-   ```bash
-   npx squad-reviews setup
-   ```
-
-2. Edit `reviews/config.json` and map each review role to your team reviewer.
-3. Validate the setup:
-
-   ```bash
-   npx squad-reviews status
-   npx squad-reviews doctor
-   ```
-
-Minimal example:
+Edit `reviews/config.json` and map each role slug to your team's reviewer agent:
 
 ```json
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "1.1.0",
   "reviewers": {
+    "codereview": {
+      "agent": "nibbler",
+      "dimension": "Code quality, correctness, test coverage",
+      "charterPath": ".squad/agents/nibbler/charter.md",
+      "botLogin": "sqd-nibbler[bot]",
+      "gateRule": { "required": "always" }
+    },
     "security": {
       "agent": "zapp",
       "dimension": "Security surface, injection, auth, trust boundaries",
-      "charterPath": ".squad/agents/zapp/charter.md"
+      "charterPath": ".squad/agents/zapp/charter.md",
+      "botLogin": "sqd-zapp[bot]",
+      "gateRule": {
+        "required": "conditional",
+        "bypassWhen": { "labels": ["squad:chore-auto"] },
+        "requiredWhen": { "paths": [".github/workflows/**", "**/auth/**"] }
+      }
     },
     "docs": {
       "agent": "amy",
       "dimension": "Documentation completeness, changeset quality",
-      "charterPath": ".squad/agents/amy/charter.md"
+      "charterPath": ".squad/agents/amy/charter.md",
+      "botLogin": "sqd-amy[bot]",
+      "gateRule": {
+        "required": "conditional",
+        "requiredWhen": { "paths": ["packages/*/src/**", "src/**"] },
+        "bypassLabels": ["skip-docs", "docs:not-applicable"]
+      }
     }
   },
   "threadResolution": {
@@ -82,126 +108,243 @@ Minimal example:
 }
 ```
 
-## How it works
+### Step 3: Scaffold the review gate
 
-1. **Request** — route a PR or issue to a configured reviewer role.
-2. **Execute** — the reviewer uses its charter, reads the artifact, and posts review feedback.
-3. **Acknowledge** — the implementer fetches unresolved feedback threads.
-4. **Resolve** — each thread is replied to and resolved as either `addressed` or `dismissed`.
+```bash
+squad-reviews scaffold-gate
+```
 
-For PRs, the flow uses native GitHub review events (`COMMENT` or `REQUEST_CHANGES`). For issue reviews, approval is represented by the `{role}:approved` label.
+Commit the generated workflows, then add **Review Gate** as a required status check in your branch protection rules.
+
+### Step 4: Validate
+
+```bash
+squad-reviews status   # show config and registered roles
+squad-reviews doctor   # run health checks
+```
 
 ---
 
-## Extension tools
+## How it works
+
+```
+┌─────────┐     ┌─────────┐     ┌─────────────┐     ┌─────────┐
+│ Request │ ──▶ │ Execute │ ──▶ │ Acknowledge │ ──▶ │ Resolve │
+└─────────┘     └─────────┘     └─────────────┘     └─────────┘
+  Route PR/       Reviewer         Implementer        Reply +
+  issue to        posts native     fetches unresolved resolve as
+  reviewer role   GitHub review    threads            addressed/
+                                                      dismissed
+```
+
+1. **Request** — route a PR or issue to a configured reviewer role.
+2. **Execute** — the reviewer reads the artifact using its charter and posts a native GitHub review (`COMMENT`, `REQUEST_CHANGES`, or `APPROVE`).
+3. **Acknowledge** — the implementer fetches unresolved feedback threads.
+4. **Resolve** — each thread is replied to and resolved. The reply-before-resolve guard ensures no thread is silently dismissed.
+
+For PRs, the canonical approval signal is a native GitHub review with state `APPROVED`. For issues (design proposals), approval is represented by the `{role}:approved` label.
+
+---
+
+## CLI Reference
+
+| Command | Description |
+|---------|-------------|
+| `squad-reviews init` | One-command setup: installs extension, config template, SKILL.md, copilot-instructions |
+| `squad-reviews status` | Show current config and registered reviewers |
+| `squad-reviews doctor` | Run health checks (config, identity, labels, GitHub setup) |
+| `squad-reviews setup` | Create `reviews/config.json` from template |
+| `squad-reviews scaffold-gate [--roles r1,r2] [--dry-run]` | Generate review gate CI workflows |
+| `squad-reviews gate-status --pr N [--owner O --repo R]` | Check gate status for a PR |
+| `squad-reviews report --pr N [--owner O --repo R]` | Full review report for a PR |
+| `squad-reviews migrate` | Migrate config to latest schema version |
+| `squad-reviews request-pr-review --pr N --reviewer ROLE` | Route PR to reviewer |
+| `squad-reviews execute-pr-review --pr N --role ROLE --event EVENT [--body TEXT]` | Post PR review |
+| `squad-reviews acknowledge-feedback --pr N` | List unresolved threads |
+| `squad-reviews resolve-thread --pr N --thread ID --comment ID --reply TEXT --action ACTION` | Resolve thread |
+| `squad-reviews request-issue-review --issue N --reviewer ROLE` | Route issue to reviewer |
+| `squad-reviews execute-issue-review --issue N --role ROLE [--approved] [--body TEXT]` | Post issue review |
+
+All commands accept `--owner` and `--repo` overrides. Run `squad-reviews <command> --help` for full usage.
+
+---
+
+## Extension Tools
+
+These tools are available to Copilot CLI agents when the extension is installed:
 
 | Tool | Description |
-| --- | --- |
-| `squad_reviews_request_pr_review` | Request a PR review from a configured reviewer role. |
-| `squad_reviews_execute_pr_review` | Execute a PR review using the reviewer charter and bot token. |
-| `squad_reviews_acknowledge_feedback` | List unresolved PR review threads that still need action. |
-| `squad_reviews_resolve_thread` | Reply to a PR review thread, then resolve it as addressed or dismissed. |
-| `squad_reviews_request_issue_review` | Request an issue review from a configured reviewer role. |
-| `squad_reviews_execute_issue_review` | Execute an issue review and optionally apply the approval label. |
-| `squad_reviews_status` | Show the current review config and registered reviewers. |
-| `squad_reviews_doctor` | Run health checks for config, identity, labels, and GitHub setup. |
-| `squad_reviews_setup` | Create `reviews/config.json` from the template. |
-| `squad_reviews_scaffold_gate` | Scaffold review gate CI workflows (reusable + caller). |
+|------|-------------|
+| `squad_reviews_request_pr_review` | Request a PR review from a configured reviewer role |
+| `squad_reviews_execute_pr_review` | Execute a PR review (COMMENT, REQUEST_CHANGES, or APPROVE) |
+| `squad_reviews_acknowledge_feedback` | List unresolved PR review threads |
+| `squad_reviews_resolve_thread` | Reply to and resolve a PR review thread |
+| `squad_reviews_request_issue_review` | Request an issue review from a reviewer role |
+| `squad_reviews_execute_issue_review` | Execute an issue review (optionally approve) |
+| `squad_reviews_gate_status` | Check gate status for a PR without CI |
+| `squad_reviews_status` | Show config and registered reviewers |
+| `squad_reviews_doctor` | Run health checks |
+| `squad_reviews_setup` | Create config from template |
+| `squad_reviews_scaffold_gate` | Scaffold review gate CI workflows |
 
-## CLI commands
+---
 
-```bash
-squad-reviews status
-squad-reviews doctor
-squad-reviews setup
-squad-reviews request-pr-review --pr <number> --reviewer <role> [--owner <owner> --repo <repo>]
-squad-reviews execute-pr-review --pr <number> --role <role> --event <COMMENT|REQUEST_CHANGES> [--body <text>] [--owner <owner> --repo <repo>]
-squad-reviews acknowledge-feedback --pr <number> [--owner <owner> --repo <repo>]
-squad-reviews resolve-thread --pr <number> --thread <id> --comment <id> --reply <text> --action <addressed|dismissed> [--owner <owner> --repo <repo>]
-squad-reviews request-issue-review --issue <number> --reviewer <role> [--owner <owner> --repo <repo>]
-squad-reviews execute-issue-review --issue <number> --role <role> [--approved] [--body <text>] [--owner <owner> --repo <repo>]
-squad-reviews scaffold-gate [--roles <role1,role2,...>]
-```
+## Configuration Reference
 
-Examples:
+`reviews/config.json` is the single source of truth for review governance.
 
-```bash
-npx squad-reviews request-pr-review --pr 42 --reviewer security
-npx squad-reviews execute-pr-review --pr 42 --role security --event REQUEST_CHANGES --body "Auth boundary is too permissive."
-npx squad-reviews acknowledge-feedback --pr 42
-npx squad-reviews resolve-thread --pr 42 --thread THREAD_ID --comment 123456 --reply "abc1234: tightened validation and added tests" --action addressed
-npx squad-reviews request-issue-review --issue 29 --reviewer docs
-npx squad-reviews execute-issue-review --issue 29 --role docs --approved --body "Approved from a docs completeness perspective."
-```
+### `schemaVersion`
 
-Run command-specific help with:
+Currently supports `"1.0.0"` and `"1.1.0"`. Use `squad-reviews migrate` to upgrade.
 
-```bash
-squad-reviews <command> --help
-```
+### `reviewers`
+
+Non-empty object keyed by role slug (e.g., `codereview`, `security`, `docs`):
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `agent` | string | ✅ | Squad agent name that owns the review |
+| `dimension` | string | ✅ | Human-readable review scope |
+| `charterPath` | string | ✅ | Repo-local charter file used as review rubric |
+| `botLogin` | string | ❌ | GitHub App bot login (e.g., `sqd-zapp[bot]`) for precise reviewer matching |
+| `gateRule` | object | ❌ | Gate requirement configuration (see below) |
+
+### `gateRule`
+
+Controls whether a reviewer role is required for merge:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `required` | `"always"` \| `"conditional"` \| `"optional"` | Requirement level |
+| `bypassWhen.labels` | string[] | Skip this role if PR has any of these labels |
+| `requiredWhen.paths` | string[] | Only require if changed files match these globs |
+| `bypassLabels` | string[] | Shorthand bypass labels (e.g., `["skip-docs"]`) |
+
+**Evaluation logic for `conditional` roles:**
+
+1. If any `bypassLabels` match the PR → **skip**
+2. If any `bypassWhen.labels` match the PR AND no `requiredWhen.paths` match changed files → **skip**
+3. If `requiredWhen.paths` is set and no changed files match → **skip**
+4. Otherwise → **required**
+
+### `threadResolution`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `requireReplyBeforeResolve` | boolean | If true, threads cannot be resolved without a reply |
+| `templates.addressed` | string | Reply template for fixed feedback; supports `{sha}` and `{description}` |
+| `templates.dismissed` | string | Reply template for dismissed feedback; supports `{justification}` |
+
+### `feedbackSources`
+
+Array of allowed feedback source identifiers: `"squad-agents"`, `"humans"`, `"github-copilot-bot"`.
 
 ---
 
 ## Review Gate
 
-The review gate is a CI workflow that blocks PR merges until all required reviewer roles have approved and all review threads are resolved.
+The review gate is a CI workflow that blocks PR merges until governance requirements are met.
 
 ### Scaffold the gate
 
 ```bash
-npx squad-reviews scaffold-gate --roles codereview,security
+squad-reviews scaffold-gate --roles codereview,security,docs
 ```
 
-This generates two files:
-
-- `.github/workflows/squad-review-gate.yml` — reusable workflow (the gate logic)
+Generates:
+- `.github/workflows/squad-review-gate.yml` — reusable workflow (gate logic)
 - `.github/workflows/review-gate.yml` — caller workflow (triggers on PR events)
+
+Use `--dry-run` to preview without writing files.
 
 ### What the gate checks
 
-1. For each required role, a native GitHub review with state `APPROVED` must exist.
-2. Zero unresolved review conversation threads remain on the PR.
-3. As a legacy side-effect, `{role}:approved` labels are auto-applied for approved roles.
+1. **Native GitHub reviews** — each required role must have a review with state `APPROVED` (the latest review per reviewer is used)
+2. **Unresolved threads** — zero unresolved review conversation threads must remain
+3. **Legacy labels** — `{role}:approved` labels are auto-applied as a side-effect for compatibility
 
-### Setup
+### Conditional requirements
 
-After scaffolding:
+Roles with `gateRule.required: "conditional"` are evaluated at runtime:
 
-1. Commit the generated workflow files.
-2. In branch protection settings, add **Review Gate** as a required status check.
-3. Ensure reviewer bots have write access to submit reviews on the repository.
+- The gate fetches changed files and PR labels
+- If `requiredWhen.paths` is configured, the role is only required when changed files match those globs
+- If `bypassWhen.labels` or `bypassLabels` match a PR label, the role is skipped
+
+**Example:** The `docs` role is only required when `src/**` changes, and can be bypassed with the `skip-docs` label.
+
+### Bypass labels
+
+Add bypass labels to skip conditional roles:
+
+```json
+"gateRule": {
+  "required": "conditional",
+  "bypassLabels": ["skip-docs", "docs:not-applicable"]
+}
+```
+
+When the PR has any listed label, the role is skipped and the gate passes without that role's approval.
+
+### Stale approval clearing
+
+When new commits are pushed to a PR (`synchronize` event), **all `{role}:approved` labels are automatically removed**. This ensures prior approvals are invalidated when code changes, forcing a fresh review cycle.
+
+### Setup after scaffolding
+
+1. Commit the generated workflow files
+2. In branch protection settings, add **Review Gate** as a required status check
+3. Ensure reviewer bots have write access to submit reviews on the repository
 
 ---
 
-## Configuration
+## Issue Reviews (Design Proposals)
 
-`reviews/config.json` uses a small, validated schema:
+For design proposals that live as GitHub issues, `squad-reviews` supports the same review lifecycle:
 
-- `schemaVersion`: currently must be `"1.0.0"`
-- `reviewers`: non-empty object keyed by role slug
-  - `agent`: Squad agent name that owns the review
-  - `dimension`: human-readable review scope
-  - `charterPath`: repo-local charter file used as the review rubric
-- `threadResolution`:
-  - `requireReplyBeforeResolve`: boolean guard for thread handling
-  - `templates.addressed`: reply template for fixed feedback; supports `{sha}` and `{description}`
-  - `templates.dismissed`: reply template for intentional non-action; supports `{justification}`
-- `feedbackSources`: allowlist of feedback sources to consider during acknowledgment
-  - `squad-agents`
-  - `humans`
-  - `github-copilot-bot`
+```bash
+# Route a design proposal to a reviewer
+squad-reviews request-issue-review --issue 29 --reviewer architecture
+
+# Reviewer posts structured feedback and optionally approves
+squad-reviews execute-issue-review --issue 29 --role architecture --approved --body "Architecture LGTM"
+```
+
+Approval is signaled by the `{role}:approved` label on the issue. This supports the "review proposal before code" workflow where design decisions are reviewed at the issue level before implementation begins.
 
 ---
 
 ## Integration with `@sabbour/squad-identity`
 
-`@sabbour/squad-reviews` depends on `@sabbour/squad-identity` as a peer because review execution needs a bot identity and token source. In practice:
+`@sabbour/squad-reviews` depends on `@sabbour/squad-identity` as an optional peer because review execution needs a bot identity and token source:
 
-- `squad-identity` provisions or resolves the bot credentials
-- `squad-reviews` consumes those credentials through `SQUAD_REVIEW_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`
-- `doctor` also checks whether the `squad-identity` extension is installed under `.github/extensions/` or `extensions/`
+| squad-identity provides | squad-reviews consumes |
+|-------------------------|------------------------|
+| Per-agent GitHub App credentials | Token for posting reviews as the bot |
+| Bot login mapping (`{app-slug}[bot]`) | `botLogin` field for precise reviewer matching in the gate |
+| `squad_identity_resolve_token` tool | Token resolution in agent workflows |
 
-Install and configure identity first, then wire review roles to the agent charters you want enforcing governance.
+Install and configure identity first, then map each reviewer role's `botLogin` to the corresponding app-slug from `squad-identity`.
+
+### Token resolution
+
+The token is resolved in priority order:
+1. `SQUAD_REVIEW_TOKEN` environment variable
+2. `GH_TOKEN` environment variable
+3. `GITHUB_TOKEN` environment variable
+4. `squad_identity_resolve_token` tool call (in agent workflows)
+
+---
+
+## Audit Log
+
+Every review action is appended to `reviews/audit.jsonl` — an append-only log that records:
+
+- Review requests, executions, and approvals
+- Thread resolutions (addressed/dismissed)
+- Timestamps, actors, and artifact references
+
+This enables compliance auditing without external tooling. The file is auto-created on first write.
 
 ---
 
@@ -209,10 +352,27 @@ Install and configure identity first, then wire review roles to the agent charte
 
 ```bash
 npm install
-npm test
+npm test          # runs all tests (Node.js test runner)
+npm run lint      # ESLint
 ```
 
-Contributions should keep the package config-driven, preserve the review-thread reply-before-resolve behavior, and update tests when behavior changes.
+### Project structure
+
+```
+bin/                     CLI entrypoint
+extensions/squad-reviews/
+  extension.mjs          Copilot CLI extension (tool registrations)
+  lib/
+    review-config.mjs    Config loading, validation, migration
+    scaffold-gate.mjs    Gate workflow generation
+    gate-status.mjs      Gate status checking
+    execute-review.mjs   PR review execution
+    resolve-thread.mjs   Thread resolution
+    audit-log.mjs        Append-only audit logging
+reviews/
+  config.json.template   Config template for new repos
+test/                    Test suites (Node.js test runner)
+```
 
 ---
 

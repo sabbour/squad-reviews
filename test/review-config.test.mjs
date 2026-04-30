@@ -65,6 +65,7 @@ describe('review-config.mjs', () => {
       dimension: 'Security surface, injection, auth, trust boundaries',
       charterPath: '.squad/agents/zapp/charter.md',
       botLogin: null,
+      gateRule: null,
     });
   });
 

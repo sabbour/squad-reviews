@@ -1,25 +1,41 @@
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "1.1.0",
   "reviewers": {
     "codereview": {
       "agent": "nibbler",
       "dimension": "Code quality, correctness, test coverage, maintainability",
-      "charterPath": ".squad/agents/nibbler/charter.md"
+      "charterPath": ".squad/agents/nibbler/charter.md",
+      "botLogin": "sqd-nibbler[bot]",
+      "gateRule": { "required": "always" }
     },
     "security": {
       "agent": "zapp",
       "dimension": "Security surface, injection, auth, trust boundaries",
-      "charterPath": ".squad/agents/zapp/charter.md"
+      "charterPath": ".squad/agents/zapp/charter.md",
+      "botLogin": "sqd-zapp[bot]",
+      "gateRule": {
+        "required": "conditional",
+        "bypassWhen": { "labels": ["squad:chore-auto"] },
+        "requiredWhen": { "paths": [".github/workflows/**", "**/auth/**", "**/security/**"] }
+      }
     },
     "architecture": {
       "agent": "leela",
       "dimension": "Architecture alignment, pack boundaries, API contracts",
-      "charterPath": ".squad/agents/leela/charter.md"
+      "charterPath": ".squad/agents/leela/charter.md",
+      "botLogin": "sqd-leela[bot]",
+      "gateRule": { "required": "always" }
     },
     "docs": {
       "agent": "amy",
       "dimension": "Documentation completeness, changeset quality",
-      "charterPath": ".squad/agents/amy/charter.md"
+      "charterPath": ".squad/agents/amy/charter.md",
+      "botLogin": "sqd-amy[bot]",
+      "gateRule": {
+        "required": "conditional",
+        "requiredWhen": { "paths": ["packages/*/src/**", "src/**"] },
+        "bypassLabels": ["skip-docs", "docs:not-applicable"]
+      }
     }
   },
   "threadResolution": {
