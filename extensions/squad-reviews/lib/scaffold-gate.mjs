@@ -49,6 +49,16 @@ on:
         description: 'Pull request number to check'
         required: true
         type: number
+  pull_request_review:
+    types: [submitted, dismissed]
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [labeled, unlabeled, opened, synchronize, reopened]
+
+concurrency:
+  group: squad-review-gate-\${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -59,6 +69,7 @@ permissions:
 jobs:
   review-gate:
     name: Review Gate
+    if: github.event_name != 'issue_comment' || github.event.issue.pull_request
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,8 +81,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const allRoles = '\${{ inputs.roles }}'.split(',').map(r => r.trim()).filter(Boolean);
-            const prNumber = \${{ inputs.pr_number }};
+            const allRoles = ('\${{ inputs.roles }}' || '${rolesDefault}').split(',').map(r => r.trim()).filter(Boolean);
+            const prNumber = \${{ inputs.pr_number || 0 }} || context.payload.pull_request?.number || context.payload.issue?.number;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
