@@ -35,7 +35,7 @@ export function generateReusableWorkflow(roles, config = {}, repoRoot = '.') {
   const botLoginJson = JSON.stringify(botLoginMap);
   const gateRulesJson = JSON.stringify(gateRulesMap);
 
-  return `name: Squad Review Gate (Reusable)
+  return `name: Squad Review Gate
 
 on:
   workflow_call:
