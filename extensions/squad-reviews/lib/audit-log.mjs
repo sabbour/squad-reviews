@@ -5,7 +5,7 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-const AUDIT_LOG_RELATIVE_PATH = join('reviews', 'audit.jsonl');
+const AUDIT_LOG_RELATIVE_PATH = join('.squad', 'reviews', 'audit.jsonl');
 
 /**
  * Append a review action to the audit log.

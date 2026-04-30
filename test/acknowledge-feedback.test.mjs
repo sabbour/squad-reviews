@@ -17,8 +17,8 @@ async function createWorkspace(t, config) {
     `acknowledge-feedback-${process.pid}-${Date.now()}-${workspaceCounter++}`,
   );
 
-  await mkdir(resolve(workspace, 'reviews'), { recursive: true });
-  await writeFile(resolve(workspace, 'reviews', 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
+  await mkdir(resolve(workspace, '.squad', 'reviews'), { recursive: true });
+  await writeFile(resolve(workspace, '.squad', 'reviews', 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
   t.after(() => rm(workspace, { recursive: true, force: true }));
   return workspace;
 }

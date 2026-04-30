@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const CONFIG_RELATIVE_PATH = join('reviews', 'config.json');
+const CONFIG_RELATIVE_PATH = join('.squad', 'reviews', 'config.json');
 const SCHEMA_VERSION = '1.1.0';
 
 function invalidConfig(reason) {

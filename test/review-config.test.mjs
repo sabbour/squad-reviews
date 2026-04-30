@@ -16,7 +16,7 @@ async function createWorkspace(t) {
     `review-config-${process.pid}-${Date.now()}-${workspaceCounter++}`,
   );
 
-  await mkdir(resolve(workspace, 'reviews'), { recursive: true });
+  await mkdir(resolve(workspace, '.squad', 'reviews'), { recursive: true });
   t.after(() => rm(workspace, { recursive: true, force: true }));
   return workspace;
 }
@@ -24,7 +24,7 @@ async function createWorkspace(t) {
 describe('review-config.mjs', () => {
   it('loads valid config successfully', async (t) => {
     const workspace = await createWorkspace(t);
-    await copyFile(fixturePath('valid-config.json'), resolve(workspace, 'reviews', 'config.json'));
+    await copyFile(fixturePath('valid-config.json'), resolve(workspace, '.squad', 'reviews', 'config.json'));
 
     const config = loadConfig(workspace);
 
@@ -43,7 +43,7 @@ describe('review-config.mjs', () => {
     const workspace = await createWorkspace(t);
     const config = createMockConfig();
     config.schemaVersion = '9.9.9';
-    await writeFile(resolve(workspace, 'reviews', 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
+    await writeFile(resolve(workspace, '.squad', 'reviews', 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
 
     assert.throws(() => loadConfig(workspace), /schemaVersion/i);
   });
@@ -52,7 +52,7 @@ describe('review-config.mjs', () => {
     const workspace = await createWorkspace(t);
     const config = createMockConfig();
     config.reviewers = {};
-    await writeFile(resolve(workspace, 'reviews', 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
+    await writeFile(resolve(workspace, '.squad', 'reviews', 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
 
     assert.throws(() => loadConfig(workspace), /reviewers/i);
   });

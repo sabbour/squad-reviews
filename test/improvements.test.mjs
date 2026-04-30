@@ -22,10 +22,10 @@ const CLI_PATH = join(__dirname, '..', 'bin', 'squad-reviews.mjs');
 
 function createTempRepo() {
   const tempDir = join(tmpdir(), `squad-reviews-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  mkdirSync(join(tempDir, 'reviews'), { recursive: true });
+  mkdirSync(join(tempDir, '.squad', 'reviews'), { recursive: true });
   mkdirSync(join(tempDir, '.git'), { recursive: true });
   writeFileSync(
-    join(tempDir, 'reviews', 'config.json'),
+    join(tempDir, '.squad', 'reviews', 'config.json'),
     JSON.stringify({
       schemaVersion: '1.1.0',
       reviewers: {
@@ -38,8 +38,8 @@ function createTempRepo() {
     'utf8'
   );
   writeFileSync(
-    join(tempDir, 'reviews', 'config.json.template'),
-    readFileSync(join(__dirname, '..', 'reviews', 'config.json.template'), 'utf8'),
+    join(tempDir, '.squad', 'reviews', 'config.json.template'),
+    readFileSync(join(__dirname, '..', '.squad', 'reviews', 'config.json.template'), 'utf8'),
     'utf8'
   );
   return tempDir;
@@ -156,7 +156,7 @@ describe('audit-log', () => {
     appendAuditEntry(tempDir, { action: 'review_posted', pr: 42, role: 'codereview' });
     appendAuditEntry(tempDir, { action: 'thread_resolved', pr: 42, threadId: 'abc' });
 
-    const logPath = join(tempDir, 'reviews', 'audit.jsonl');
+    const logPath = join(tempDir, '.squad', 'reviews', 'audit.jsonl');
     assert.ok(existsSync(logPath));
     const lines = readFileSync(logPath, 'utf8').trim().split('\n');
     assert.equal(lines.length, 2);

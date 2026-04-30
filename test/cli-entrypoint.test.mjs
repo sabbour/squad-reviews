@@ -7,8 +7,8 @@ import { resolve } from 'node:path';
 const repoRoot = process.cwd();
 const binPath = resolve(repoRoot, 'bin', 'squad-reviews.mjs');
 const runtimeRoot = resolve(repoRoot, 'test', '.runtime');
-const requestReviewConfig = resolve(repoRoot, 'test', 'fixtures', 'request-review', 'repo', 'reviews', 'config.json');
-const templateSource = resolve(repoRoot, 'reviews', 'config.json.template');
+const requestReviewConfig = resolve(repoRoot, 'test', 'fixtures', 'request-review', 'repo', '.squad', 'reviews', 'config.json');
+const templateSource = resolve(repoRoot, '.squad', 'reviews', 'config.json.template');
 let workspaceCounter = 0;
 
 async function createWorkspace(t) {
@@ -49,9 +49,9 @@ test('prints global help with --help', () => {
 
 test('status reports config, token, and GitHub remote defaults', async (t) => {
   const workspace = await createWorkspace(t);
-  await mkdir(resolve(workspace, 'reviews'), { recursive: true });
+  await mkdir(resolve(workspace, '.squad', 'reviews'), { recursive: true });
   await mkdir(resolve(workspace, 'src', 'nested'), { recursive: true });
-  await copyFile(requestReviewConfig, resolve(workspace, 'reviews', 'config.json'));
+  await copyFile(requestReviewConfig, resolve(workspace, '.squad', 'reviews', 'config.json'));
 
   execFileSync('git', ['init'], { cwd: workspace, stdio: 'ignore' });
   execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:octo-org/hello-world.git'], {
@@ -94,9 +94,9 @@ test('init installs files and reports result with --json', async (t) => {
 
 test('request-pr-review falls back to git origin when owner/repo are omitted', async (t) => {
   const workspace = await createWorkspace(t);
-  await mkdir(resolve(workspace, 'reviews'), { recursive: true });
+  await mkdir(resolve(workspace, '.squad', 'reviews'), { recursive: true });
   await mkdir(resolve(workspace, 'packages', 'service'), { recursive: true });
-  await copyFile(requestReviewConfig, resolve(workspace, 'reviews', 'config.json'));
+  await copyFile(requestReviewConfig, resolve(workspace, '.squad', 'reviews', 'config.json'));
 
   execFileSync('git', ['init'], { cwd: workspace, stdio: 'ignore' });
   execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/octo-org/hello-world.git'], {

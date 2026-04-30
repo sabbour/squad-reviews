@@ -10,7 +10,7 @@
     "bin/",
     "extensions/",
     "squad-reviews/SKILL.md",
-    "reviews/config.json.template",
+    ".squad/reviews/config.json.template",
     "README.md",
     "LICENSE"
   ],

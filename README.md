@@ -70,7 +70,7 @@ squad-reviews init
 
 ### Step 2: Configure reviewers
 
-Edit `reviews/config.json` and map each role slug to your team's reviewer agent:
+Edit `.squad/reviews/config.json` and map each role slug to your team's reviewer agent:
 
 ```json
 {
@@ -156,7 +156,7 @@ For PRs, the canonical approval signal is a native GitHub review with state `APP
 |---------|-------------|
 | `squad-reviews setup [target-repo] [--force]` | Full guided setup (recommended) |
 | `squad-reviews init [target-repo]` | Install files only (advanced) |
-| `squad-reviews generate-config [--roles r1,r2] [--force]` | Generate `reviews/config.json` from squad-identity |
+| `squad-reviews generate-config [--roles r1,r2] [--force]` | Generate `.squad/reviews/config.json` from squad-identity |
 | `squad-reviews status` | Show current config and registered reviewers |
 | `squad-reviews doctor` | Run health checks (config, identity, labels, GitHub setup) |
 | `squad-reviews scaffold-gate [--roles r1,r2] [--dry-run]` | Generate review gate CI workflows |
@@ -202,7 +202,7 @@ These tools are available to Copilot CLI agents when the extension is installed:
 
 ## Configuration Reference
 
-`reviews/config.json` is the single source of truth for review governance.
+`.squad/reviews/config.json` is the single source of truth for review governance.
 
 ### `schemaVersion`
 
@@ -428,7 +428,7 @@ If the reviewer bot already has a review on the current HEAD commit, re-executin
 
 ## Audit Log
 
-Every review action is appended to `reviews/audit.jsonl` — an append-only log that records:
+Every review action is appended to `.squad/reviews/audit.jsonl` — an append-only log that records:
 
 - Review requests, executions, and approvals
 - Thread resolutions (addressed/dismissed)
@@ -477,7 +477,7 @@ extensions/squad-reviews/
     execute-review.mjs   PR review execution
     resolve-thread.mjs   Thread resolution
     audit-log.mjs        Append-only audit logging
-reviews/
+.squad/reviews/
   config.json.template   Config template for new repos
 test/                    Test suites (Node.js test runner)
 ```

@@ -15,9 +15,9 @@ describe('scaffold-gate', () => {
 
   beforeEach(() => {
     tempDir = join(tmpdir(), `squad-reviews-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    mkdirSync(join(tempDir, 'reviews'), { recursive: true });
+    mkdirSync(join(tempDir, '.squad', 'reviews'), { recursive: true });
     writeFileSync(
-      join(tempDir, 'reviews', 'config.json'),
+      join(tempDir, '.squad', 'reviews', 'config.json'),
       JSON.stringify({
         schemaVersion: '1.1.0',
         reviewers: {

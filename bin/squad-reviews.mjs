@@ -20,7 +20,7 @@ import { scaffoldGate } from '../extensions/squad-reviews/lib/scaffold-gate.mjs'
 const COMMANDS = {
   setup: 'Full guided setup (recommended)',
   init: 'Install files only (advanced)',
-  'generate-config': 'Generate reviews/config.json from squad-identity',
+  'generate-config': 'Generate .squad/reviews/config.json from squad-identity',
   status: 'Show config summary',
   doctor: 'Run health checks',
   'scaffold-gate': 'Scaffold review gate CI workflows',
@@ -57,8 +57,8 @@ const SHARED_REPO_OPTIONS = {
 };
 
 const TOKEN_ENV_VARS = ['SQUAD_REVIEW_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'];
-const CONFIG_RELATIVE_PATH = join('reviews', 'config.json');
-const TEMPLATE_RELATIVE_PATH = join('reviews', 'config.json.template');
+const CONFIG_RELATIVE_PATH = join('.squad', 'reviews', 'config.json');
+const TEMPLATE_RELATIVE_PATH = join('.squad', 'reviews', 'config.json.template');
 const ACTIONS = new Set(['addressed', 'dismissed']);
 const REVIEW_EVENTS = new Set(['COMMENT', 'REQUEST_CHANGES', 'APPROVE']);
 
@@ -415,10 +415,10 @@ async function commandSetup(values) {
   log(`\n━━━ Phase 1: Initialize ━━━\n`);
 
   // Create reviews directory and copy template
-  const reviewsDir = join(target, 'reviews');
+  const reviewsDir = join(target, '.squad', 'reviews');
   const templateSrc = join(packageRoot, 'reviews', 'config.json.template');
-  const templateDest = join(target, 'reviews', 'config.json.template');
-  const configDest = join(target, 'reviews', 'config.json');
+  const templateDest = join(target, '.squad', 'reviews', 'config.json.template');
+  const configDest = join(target, '.squad', 'reviews', 'config.json');
 
   await mkdir(reviewsDir, { recursive: true });
 
@@ -542,7 +542,7 @@ async function commandSetup(values) {
   log(`\n✅ squad-reviews setup complete.`);
   log(`\nNext steps:`);
   log(`  1. In a Copilot CLI session, call squad_reviews_generate_config`);
-  log(`     to scaffold reviews/config.json from your squad-identity config.`);
+  log(`     to scaffold .squad/reviews/config.json from your squad-identity config.`);
   log(`     Then edit dimensions and gate rules for each role.`);
   log(`  2. Commit all generated files.`);
   log(`  3. Set the Review Gate as a required status check in branch protection.`);
@@ -706,9 +706,9 @@ async function commandInit(values) {
   log(`🔧 Installing squad-reviews into: ${target}\n`);
 
   // Create reviews directory and copy template
-  const reviewsDir = join(target, 'reviews');
+  const reviewsDir = join(target, '.squad', 'reviews');
   const templateSrc = join(packageRoot, 'reviews', 'config.json.template');
-  const templateDest = join(target, 'reviews', 'config.json.template');
+  const templateDest = join(target, '.squad', 'reviews', 'config.json.template');
 
   await mkdir(reviewsDir, { recursive: true });
 
@@ -804,7 +804,7 @@ async function commandReport(values) {
   }
 
   // Read audit log for metrics
-  const auditPath = join(repoRoot, 'reviews', 'audit.jsonl');
+  const auditPath = join(repoRoot, '.squad', 'reviews', 'audit.jsonl');
   let recentActions = [];
   if (existsSync(auditPath)) {
     const lines = readFileSync(auditPath, 'utf8').trim().split('\n').filter(Boolean);
@@ -876,13 +876,13 @@ async function commandGenerateConfig(values) {
     feedbackSources: ['squad-agents', 'humans', 'github-copilot-bot'],
   };
 
-  const configPath = join(repoRoot, 'reviews', 'config.json');
+  const configPath = join(repoRoot, '.squad', 'reviews', 'config.json');
   if (existsSync(configPath) && !values.force) {
     throw new Error(`${configPath} already exists. Use --force to overwrite.`);
   }
 
   const { mkdirSync, writeFileSync } = await import('node:fs');
-  mkdirSync(join(repoRoot, 'reviews'), { recursive: true });
+  mkdirSync(join(repoRoot, '.squad', 'reviews'), { recursive: true });
   writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 
   log(`✓ Generated ${configPath}`);

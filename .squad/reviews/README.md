@@ -8,14 +8,14 @@ This directory holds the repo-local review configuration. The config maps review
 
 ## Setup
 
-1. Copy `reviews/config.json.template` to `reviews/config.json`.
-2. Edit `reviews/config.json` for your team.
+1. Copy `.squad/reviews/config.json.template` to `.squad/reviews/config.json`.
+2. Edit `.squad/reviews/config.json` for your team.
 3. Commit the new file.
 
 Example:
 
 ```bash
-cp reviews/config.json.template reviews/config.json
+cp .squad/reviews/config.json.template .squad/reviews/config.json
 ```
 
 ## reviewers

@@ -26,7 +26,7 @@ const execFileAsync = promisify(execFile);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LIB_DIR = join(__dirname, 'lib');
 const REPO_ROOT = resolveRepoRoot(__dirname);
-const REVIEWS_DIR = join(REPO_ROOT, 'reviews');
+const REVIEWS_DIR = join(REPO_ROOT, '.squad', 'reviews');
 const CONFIG_TEMPLATE_PATH = join(REVIEWS_DIR, 'config.json.template');
 const CONFIG_PATH = join(REVIEWS_DIR, 'config.json');
 const GITHUB_API_VERSION = '2022-11-28';
@@ -40,7 +40,7 @@ function resolveRepoRoot(startDir) {
   ];
 
   for (const candidate of candidates) {
-    if (existsSync(join(candidate, 'package.json')) && existsSync(join(candidate, 'reviews'))) {
+    if (existsSync(join(candidate, 'package.json')) && existsSync(join(candidate, '.squad'))) {
       return candidate;
     }
   }
@@ -122,7 +122,7 @@ function getStatusSummary() {
     return {
       ...summary,
       configured: false,
-      message: 'Run squad_reviews_setup to create reviews/config.json from the template.',
+      message: 'Run squad_reviews_setup to create .squad/reviews/config.json from the template.',
     };
   }
 
@@ -343,7 +343,7 @@ function setupConfig() {
     return {
       created: false,
       configPath: CONFIG_PATH,
-      message: 'reviews/config.json already exists. Use squad_reviews_init --force to overwrite.',
+      message: '.squad/reviews/config.json already exists. Use squad_reviews_init --force to overwrite.',
     };
   }
 
@@ -354,7 +354,7 @@ function setupConfig() {
     configPath: CONFIG_PATH,
     copiedFrom: CONFIG_TEMPLATE_PATH,
     nextSteps: [
-      'Edit reviews/config.json to map role slugs to your team agents.',
+      'Edit .squad/reviews/config.json to map role slugs to your team agents.',
       'Run squad_reviews_scaffold_gate to generate CI workflows.',
     ],
   };
@@ -521,7 +521,7 @@ const session = await joinSession({
     },
     {
       name: 'squad_reviews_setup',
-      description: 'Create reviews/config.json from the template if it does not already exist. For the full guided setup flow, use the CLI: squad-reviews setup',
+      description: 'Create .squad/reviews/config.json from the template if it does not already exist. For the full guided setup flow, use the CLI: squad-reviews setup',
       parameters: {
         type: 'object',
         properties: {
@@ -615,7 +615,7 @@ const session = await joinSession({
     // ─── Generate Config Tool ───────────────────────────────────────────────────
     {
       name: 'squad_reviews_generate_config',
-      description: 'Generate a reviews/config.json scaffold from squad-identity config. Only infers deterministic fields; uses placeholders for ambiguous ones.',
+      description: 'Generate a .squad/reviews/config.json scaffold from squad-identity config. Only infers deterministic fields; uses placeholders for ambiguous ones.',
       parameters: {
         type: 'object',
         properties: {
