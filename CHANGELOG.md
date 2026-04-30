@@ -1,5 +1,11 @@
 # @sabbour/squad-reviews
 
+## 1.3.0
+
+### Minor Changes
+
+- d4ac6c0: Tokens are now auto-resolved internally via squad-identity's lease system. The `token` parameter has been removed from all tool schemas — tokens never appear in tool call parameters or chat UI. For tools with `roleSlug` (execute_pr_review, execute_issue_review), the token is resolved for that specific role to ensure correct bot attribution.
+
 ## 1.2.1
 
 ### Patch Changes
