@@ -19,7 +19,7 @@ describe('scaffold-gate', () => {
     writeFileSync(
       join(tempDir, 'reviews', 'config.json'),
       JSON.stringify({
-        schemaVersion: '1.0.0',
+        schemaVersion: '1.1.0',
         reviewers: {
           codereview: { agent: 'nibbler', dimension: 'Code quality', charterPath: '.squad/agents/nibbler/charter.md' },
           security: { agent: 'zapp', dimension: 'Security', charterPath: '.squad/agents/zapp/charter.md' },

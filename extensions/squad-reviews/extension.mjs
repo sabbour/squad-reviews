@@ -12,11 +12,11 @@ import { fileURLToPath } from 'node:url';
 
 import { acknowledgeFeedback } from './lib/acknowledge-feedback.mjs';
 import { checkGateStatus } from './lib/gate-status.mjs';
+import { applyLabel, postComment } from './lib/github-api.mjs';
 import { executePrReview } from './lib/execute-review.mjs';
 import { executeIssueReview } from './lib/issue-review.mjs';
-import { loadConfig } from './lib/review-config.mjs';
+import { loadConfig, resolveBotLogin } from './lib/review-config.mjs';
 import { requestIssueReview, requestPrReview } from './lib/request-review.mjs';
-import { resolveRoleToken } from './lib/resolve-role-token.mjs';
 import { resolveThread } from './lib/resolve-thread.mjs';
 import { scaffoldGate } from './lib/scaffold-gate.mjs';
 
@@ -385,7 +385,7 @@ joinSession(async session => {
 
   registerJsonTool(session, {
     name: 'squad_reviews_execute_pr_review',
-    description: 'Execute a PR review using the configured reviewer charter and GitHub bot token.',
+    description: 'Execute a PR review using the configured reviewer charter and GitHub bot token. Call squad_identity_resolve_token first to get the token.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -393,37 +393,40 @@ joinSession(async session => {
         roleSlug: { type: 'string' },
         event: { type: 'string', enum: ['COMMENT', 'REQUEST_CHANGES', 'APPROVE'] },
         reviewBody: { type: 'string' },
-        token: { type: 'string', description: 'GitHub token for this role (from squad_identity_resolve_token). Falls back to env vars if omitted.' },
+        token: { type: 'string', description: 'GitHub token for this role (from squad_identity_resolve_token). Required.' },
         owner: { type: 'string' },
         repo: { type: 'string' },
       },
-      required: ['pr', 'roleSlug', 'event', 'owner', 'repo'],
+      required: ['pr', 'roleSlug', 'event', 'token', 'owner', 'repo'],
     },
-    handler: async ({ pr, roleSlug, event, reviewBody, token: explicitToken, owner, repo }) => {
-      const token = resolveRoleToken(roleSlug, explicitToken);
+    handler: async ({ pr, roleSlug, event, reviewBody, token, owner, repo }) => {
+      if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
       return executePrReview(REPO_ROOT, token, { pr, roleSlug, event, reviewBody, owner, repo });
     },
   });
 
   registerJsonTool(session, {
     name: 'squad_reviews_acknowledge_feedback',
-    description: 'List unresolved PR review threads that must be addressed or dismissed.',
+    description: 'List unresolved PR review threads that must be addressed or dismissed. Call squad_identity_resolve_token first.',
     inputSchema: {
       type: 'object',
       properties: {
         pr: { type: 'number' },
+        token: { type: 'string', description: 'GitHub token (from squad_identity_resolve_token). Required.' },
         owner: { type: 'string' },
         repo: { type: 'string' },
       },
-      required: ['pr', 'owner', 'repo'],
+      required: ['pr', 'token', 'owner', 'repo'],
     },
-    handler: async ({ pr, owner, repo }) =>
-      acknowledgeFeedback(REPO_ROOT, requireToken(), { pr, owner, repo }),
+    handler: async ({ pr, token, owner, repo }) => {
+      if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+      return acknowledgeFeedback(REPO_ROOT, token, { pr, owner, repo });
+    },
   });
 
   registerJsonTool(session, {
     name: 'squad_reviews_resolve_thread',
-    description: 'Reply to a PR review thread, then resolve it as addressed or dismissed.',
+    description: 'Reply to a PR review thread, then resolve it as addressed or dismissed. Call squad_identity_resolve_token first.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -432,13 +435,15 @@ joinSession(async session => {
         commentId: { type: 'string' },
         reply: { type: 'string' },
         action: { type: 'string', enum: ['addressed', 'dismissed'] },
+        token: { type: 'string', description: 'GitHub token (from squad_identity_resolve_token). Required.' },
         owner: { type: 'string' },
         repo: { type: 'string' },
       },
-      required: ['pr', 'threadId', 'commentId', 'reply', 'action', 'owner', 'repo'],
+      required: ['pr', 'threadId', 'commentId', 'reply', 'action', 'token', 'owner', 'repo'],
     },
-    handler: async ({ pr, threadId, commentId, reply, action, owner, repo }) =>
-      resolveThread(REPO_ROOT, requireToken(), {
+    handler: async ({ pr, threadId, commentId, reply, action, token, owner, repo }) => {
+      if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+      return resolveThread(REPO_ROOT, token, {
         pr,
         threadId,
         commentId: normalizeCommentId(commentId),
@@ -446,7 +451,8 @@ joinSession(async session => {
         action,
         owner,
         repo,
-      }),
+      });
+    },
   });
 
   registerJsonTool(session, {
@@ -468,7 +474,7 @@ joinSession(async session => {
 
   registerJsonTool(session, {
     name: 'squad_reviews_execute_issue_review',
-    description: 'Execute an issue review and optionally apply the approval label.',
+    description: 'Execute an issue review and optionally apply the approval label. Call squad_identity_resolve_token first to get the token.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -476,14 +482,14 @@ joinSession(async session => {
         roleSlug: { type: 'string' },
         reviewBody: { type: 'string' },
         approved: { type: 'boolean' },
-        token: { type: 'string', description: 'GitHub token for this role (from squad_identity_resolve_token). Falls back to env vars if omitted.' },
+        token: { type: 'string', description: 'GitHub token for this role (from squad_identity_resolve_token). Required.' },
         owner: { type: 'string' },
         repo: { type: 'string' },
       },
-      required: ['issue', 'roleSlug', 'reviewBody', 'approved', 'owner', 'repo'],
+      required: ['issue', 'roleSlug', 'reviewBody', 'approved', 'token', 'owner', 'repo'],
     },
-    handler: async ({ issue, roleSlug, reviewBody, approved, token: explicitToken, owner, repo }) => {
-      const token = resolveRoleToken(roleSlug, explicitToken);
+    handler: async ({ issue, roleSlug, reviewBody, approved, token, owner, repo }) => {
+      if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
       return executeIssueReview(REPO_ROOT, token, { issue, roleSlug, reviewBody, approved, owner, repo });
     },
   });
@@ -577,11 +583,12 @@ joinSession(async session => {
 
   registerJsonTool(session, {
     name: 'squad_reviews_gate_status',
-    description: 'Check review gate status for a PR. Returns which roles have approved, which are pending, and unresolved thread count.',
+    description: 'Check review gate status for a PR. Returns which roles have approved, which are pending, and unresolved thread count. Call squad_identity_resolve_token first.',
     inputSchema: {
       type: 'object',
       properties: {
         pr: { type: 'number', description: 'Pull request number' },
+        token: { type: 'string', description: 'GitHub token (from squad_identity_resolve_token). Required.' },
         owner: { type: 'string', description: 'Repository owner' },
         repo: { type: 'string', description: 'Repository name' },
         roles: {
@@ -590,9 +597,189 @@ joinSession(async session => {
           description: 'Roles to check. Defaults to all from config.',
         },
       },
-      required: ['pr', 'owner', 'repo'],
+      required: ['pr', 'token', 'owner', 'repo'],
     },
-    handler: async ({ pr, owner, repo, roles }) =>
-      checkGateStatus(REPO_ROOT, requireToken(), { pr, owner, repo, roles }),
+    handler: async ({ pr, token, owner, repo, roles }) => {
+      if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+      return checkGateStatus(REPO_ROOT, token, { pr, owner, repo, roles });
+    },
+  });
+
+  // ─── Generate Config Tool ───────────────────────────────────────────────────
+
+  registerJsonTool(session, {
+    name: 'squad_reviews_generate_config',
+    description: 'Generate a reviews/config.json scaffold from squad-identity config. Only infers deterministic fields; uses placeholders for ambiguous ones.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        roles: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Roles to include. Defaults to all roles from squad-identity config.',
+        },
+      },
+      required: [],
+    },
+    handler: async ({ roles: requestedRoles } = {}) => {
+      const identityPath = join(REPO_ROOT, '.squad', 'identity', 'config.json');
+      if (!existsSync(identityPath)) {
+        throw new Error('squad-identity not configured. Run squad_identity_init first.');
+      }
+      const identity = JSON.parse(readFileSync(identityPath, 'utf8'));
+      const allRoles = Object.keys(identity.apps || {});
+      const selectedRoles = requestedRoles && requestedRoles.length > 0
+        ? requestedRoles.filter(r => allRoles.includes(r))
+        : allRoles;
+
+      if (selectedRoles.length === 0) {
+        throw new Error(`No matching roles found. Available: ${allRoles.join(', ')}`);
+      }
+
+      // Build reviewers section from identity
+      const reviewers = {};
+      const agentNameMap = identity.agentNameMap || {};
+      const reverseMap = Object.fromEntries(
+        Object.entries(agentNameMap).map(([agent, role]) => [role, agent])
+      );
+
+      for (const role of selectedRoles) {
+        const agent = reverseMap[role] || 'AGENT_NAME';
+        reviewers[role] = {
+          agent,
+          dimension: 'TODO: describe review dimension',
+          charterPath: `.squad/agents/${agent}/charter.md`,
+          gateRule: { required: 'always' },
+        };
+      }
+
+      const config = {
+        schemaVersion: '1.1.0',
+        reviewers,
+        threadResolution: {
+          requireReplyBeforeResolve: true,
+          templates: {
+            addressed: 'Addressed in {sha}: {description}',
+            dismissed: 'Dismissed: {justification}',
+          },
+        },
+        feedbackSources: ['squad-agents', 'humans', 'github-copilot-bot'],
+      };
+
+      return { config, note: 'Edit dimension and gateRule fields for each role before committing.' };
+    },
+  });
+
+  // ─── Coordinator Tools ──────────────────────────────────────────────────────
+
+  registerJsonTool(session, {
+    name: 'squad_reviews_dispatch_review',
+    description: 'Request a review from a specific role on a PR. Applies a label and posts a comment to notify the reviewer agent. Call squad_identity_resolve_token first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pr: { type: 'number', description: 'Pull request number' },
+        role: { type: 'string', description: 'Reviewer role slug (e.g., "codereview", "security")' },
+        token: { type: 'string', description: 'GitHub token (from squad_identity_resolve_token). Required.' },
+        owner: { type: 'string', description: 'Repository owner' },
+        repo: { type: 'string', description: 'Repository name' },
+        message: { type: 'string', description: 'Optional message to include in the dispatch comment.' },
+      },
+      required: ['pr', 'role', 'token', 'owner', 'repo'],
+    },
+    handler: async ({ pr, role, token, owner, repo, message }) => {
+      if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+
+      const config = loadConfig(REPO_ROOT);
+      if (!config.reviewers[role]) {
+        const available = Object.keys(config.reviewers).join(', ');
+        throw new Error(`Role "${role}" not found in config. Available: ${available}`);
+      }
+
+      const label = `review:${role}:requested`;
+      await applyLabel(token, owner, repo, pr, label);
+
+      const agent = config.reviewers[role].agent;
+      const body = [
+        `🔍 **Review requested**: @${agent} (${role})`,
+        message ? `\n${message}` : '',
+        `\n_Dispatched by coordinator._`,
+      ].join('');
+      await postComment(token, owner, repo, pr, body);
+
+      return { dispatched: true, pr, role, agent, label };
+    },
+  });
+
+  registerJsonTool(session, {
+    name: 'squad_reviews_blocked_prs',
+    description: 'List PRs that are blocked on pending reviews. Queries GitHub for open PRs with review:*:requested labels. Call squad_identity_resolve_token first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        token: { type: 'string', description: 'GitHub token (from squad_identity_resolve_token). Required.' },
+        owner: { type: 'string', description: 'Repository owner' },
+        repo: { type: 'string', description: 'Repository name' },
+        role: { type: 'string', description: 'Filter by specific role. Omit for all roles.' },
+      },
+      required: ['token', 'owner', 'repo'],
+    },
+    handler: async ({ token, owner, repo, role }) => {
+      if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+
+      // Use GitHub search API to find PRs with review-requested labels
+      const labelQuery = role
+        ? `label:"review:${role}:requested"`
+        : 'label:review';
+      const query = `repo:${owner}/${repo} is:pr is:open ${labelQuery}`;
+      const url = `https://api.github.com/search/issues?q=${encodeURIComponent(query)}&per_page=50`;
+
+      const response = await fetch(url, {
+        headers: buildGitHubHeaders(token),
+      });
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`GitHub search failed (${response.status}): ${body}`);
+      }
+
+      const data = await response.json();
+      const prs = data.items.map(item => ({
+        number: item.number,
+        title: item.title,
+        author: item.user?.login,
+        labels: item.labels.map(l => l.name).filter(n => n.startsWith('review:')),
+        url: item.html_url,
+        createdAt: item.created_at,
+      }));
+
+      return { count: prs.length, prs };
+    },
+  });
+
+  registerJsonTool(session, {
+    name: 'squad_reviews_pending_reviews',
+    description: 'For a given PR, show which reviewer roles still need to approve and which have approved. Reuses the gate-status evaluator. Call squad_identity_resolve_token first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pr: { type: 'number', description: 'Pull request number' },
+        token: { type: 'string', description: 'GitHub token (from squad_identity_resolve_token). Required.' },
+        owner: { type: 'string', description: 'Repository owner' },
+        repo: { type: 'string', description: 'Repository name' },
+      },
+      required: ['pr', 'token', 'owner', 'repo'],
+    },
+    handler: async ({ pr, token, owner, repo }) => {
+      if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+      const status = await checkGateStatus(REPO_ROOT, token, { pr, owner, repo });
+      return {
+        pr,
+        passed: status.passed,
+        approvedRoles: status.approvedRoles,
+        pendingRoles: status.pendingRoles,
+        unresolvedThreads: status.unresolvedThreads,
+        summary: status.summary,
+      };
+    },
   });
 });

@@ -28,7 +28,7 @@ describe('review-config.mjs', () => {
 
     const config = loadConfig(workspace);
 
-    assert.equal(config.schemaVersion, '1.0.0');
+    assert.equal(config.schemaVersion, '1.1.0');
     assert.equal(config.reviewers.codereview.agent, 'nibbler');
     assert.deepEqual(config.feedbackSources, ['squad-agents', 'humans', 'github-copilot-bot']);
   });
@@ -64,7 +64,6 @@ describe('review-config.mjs', () => {
       agent: 'zapp',
       dimension: 'Security surface, injection, auth, trust boundaries',
       charterPath: '.squad/agents/zapp/charter.md',
-      botLogin: null,
       gateRule: null,
     });
   });

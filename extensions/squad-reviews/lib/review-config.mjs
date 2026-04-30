@@ -2,8 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const CONFIG_RELATIVE_PATH = join('reviews', 'config.json');
-const SUPPORTED_SCHEMA_VERSIONS = ['1.0.0', '1.1.0'];
-const LATEST_SCHEMA_VERSION = '1.1.0';
+const SCHEMA_VERSION = '1.1.0';
 
 function invalidConfig(reason) {
   throw new Error(`Invalid config: ${reason}`);
@@ -62,13 +61,6 @@ function validateReviewer(roleSlug, reviewer) {
   assertNonEmptyString(reviewer.dimension, `reviewers.${roleSlug}.dimension`);
   assertNonEmptyString(reviewer.charterPath, `reviewers.${roleSlug}.charterPath`);
 
-  // botLogin is optional
-  if (reviewer.botLogin !== undefined && reviewer.botLogin !== null) {
-    if (typeof reviewer.botLogin !== 'string' || reviewer.botLogin.trim() === '') {
-      invalidConfig(`reviewers.${roleSlug}.botLogin must be a non-empty string when provided`);
-    }
-  }
-
   // gateRule is optional
   if (reviewer.gateRule !== undefined) {
     validateGateRule(roleSlug, reviewer.gateRule);
@@ -107,8 +99,8 @@ function validateConfig(config) {
     invalidConfig('config must be a JSON object');
   }
 
-  if (!SUPPORTED_SCHEMA_VERSIONS.includes(config.schemaVersion)) {
-    invalidConfig(`schemaVersion must be one of: ${SUPPORTED_SCHEMA_VERSIONS.join(', ')}`);
+  if (config.schemaVersion !== SCHEMA_VERSION) {
+    invalidConfig(`schemaVersion must be "${SCHEMA_VERSION}". ${config.schemaVersion === '1.0.0' ? 'Regenerate config with: squad-reviews setup --force' : `Got: "${config.schemaVersion}"`}`);
   }
 
   if (!isPlainObject(config.reviewers)) {
@@ -170,38 +162,29 @@ export function resolveReviewer(config, roleSlug) {
     agent: reviewer.agent,
     dimension: reviewer.dimension,
     charterPath: reviewer.charterPath,
-    botLogin: reviewer.botLogin || null,
     gateRule: reviewer.gateRule || null,
   };
 }
 
+export { SCHEMA_VERSION };
+
 /**
- * Migrate config to latest schema version.
- * @param {object} config
- * @returns {{ migrated: boolean, config: object, fromVersion: string, toVersion: string }}
+ * Resolve the bot login for a role by reading squad-identity config.
+ * Returns `{appSlug}[bot]` or null if identity is not configured.
  */
-export function migrateConfig(config) {
-  if (!isPlainObject(config)) {
-    invalidConfig('config must be a JSON object');
+export function resolveBotLogin(roleSlug, repoRoot) {
+  const identityConfigPath = join(repoRoot, '.squad', 'identity', 'config.json');
+  try {
+    const identityConfig = JSON.parse(readFileSync(identityConfigPath, 'utf-8'));
+    const app = identityConfig.apps?.[roleSlug];
+    if (app?.appSlug) {
+      return `${app.appSlug}[bot]`;
+    }
+  } catch {
+    // identity not configured — caller must handle
   }
-
-  const fromVersion = config.schemaVersion || '1.0.0';
-  const result = { ...config };
-
-  // 1.0.0 → 1.1.0: adds optional botLogin field to reviewers
-  if (result.schemaVersion === '1.0.0') {
-    result.schemaVersion = '1.1.0';
-  }
-
-  return {
-    migrated: fromVersion !== result.schemaVersion,
-    config: result,
-    fromVersion,
-    toVersion: result.schemaVersion,
-  };
+  return null;
 }
-
-export { LATEST_SCHEMA_VERSION };
 
 export function getThreadTemplates(config) {
   const validatedConfig = validateConfig(config);

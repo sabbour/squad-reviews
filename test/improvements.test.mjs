@@ -15,7 +15,6 @@ import {
 
 import { checkGateStatus } from '../extensions/squad-reviews/lib/gate-status.mjs';
 import { appendAuditEntry } from '../extensions/squad-reviews/lib/audit-log.mjs';
-import { migrateConfig, LATEST_SCHEMA_VERSION } from '../extensions/squad-reviews/lib/review-config.mjs';
 import { resolveRoleToken } from '../extensions/squad-reviews/lib/resolve-role-token.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -28,10 +27,10 @@ function createTempRepo() {
   writeFileSync(
     join(tempDir, 'reviews', 'config.json'),
     JSON.stringify({
-      schemaVersion: '1.0.0',
+      schemaVersion: '1.1.0',
       reviewers: {
         codereview: { agent: 'nibbler', dimension: 'Code quality', charterPath: '.squad/agents/nibbler/charter.md' },
-        security: { agent: 'zapp', dimension: 'Security', charterPath: '.squad/agents/zapp/charter.md', botLogin: 'sqd-zapp[bot]' },
+        security: { agent: 'zapp', dimension: 'Security', charterPath: '.squad/agents/zapp/charter.md' },
       },
       threadResolution: { requireReplyBeforeResolve: true, templates: { addressed: '{sha}', dismissed: '{justification}' } },
       feedbackSources: ['squad-agents'],
@@ -110,14 +109,25 @@ describe('YAML validation - scaffold-gate output', () => {
     assert.ok(yaml.includes('jobs:'));
   });
 
-  it('botLogin is injected into reusable workflow when configured', () => {
-    const config = {
-      reviewers: {
-        security: { agent: 'zapp', dimension: 'Security', charterPath: 'c.md', botLogin: 'sqd-zapp[bot]' },
-      },
-    };
-    const yaml = generateReusableWorkflow(['security'], config);
-    assert.ok(yaml.includes('sqd-zapp[bot]'));
+  it('botLogin is derived from squad-identity config', () => {
+    // Create a temp dir with mock identity config
+    const testDir = join(tmpdir(), `squad-reviews-botlogin-test-${Date.now()}`);
+    mkdirSync(join(testDir, '.squad', 'identity'), { recursive: true });
+    writeFileSync(join(testDir, '.squad', 'identity', 'config.json'), JSON.stringify({
+      apps: { security: { appId: 1, appSlug: 'sqd-zapp', installationId: 1 } },
+    }));
+
+    try {
+      const config = {
+        reviewers: {
+          security: { agent: 'zapp', dimension: 'Security', charterPath: 'c.md' },
+        },
+      };
+      const yaml = generateReusableWorkflow(['security'], config, testDir);
+      assert.ok(yaml.includes('sqd-zapp[bot]'));
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -158,57 +168,6 @@ describe('audit-log', () => {
 
     const entry2 = JSON.parse(lines[1]);
     assert.equal(entry2.action, 'thread_resolved');
-  });
-});
-
-describe('config migration', () => {
-  it('migrates 1.0.0 to latest', () => {
-    const oldConfig = {
-      schemaVersion: '1.0.0',
-      reviewers: { codereview: { agent: 'nibbler', dimension: 'Code quality', charterPath: 'c.md' } },
-      threadResolution: { requireReplyBeforeResolve: true, templates: { addressed: '{sha}', dismissed: '{j}' } },
-      feedbackSources: ['squad-agents'],
-    };
-
-    const result = migrateConfig(oldConfig);
-    assert.equal(result.migrated, true);
-    assert.equal(result.fromVersion, '1.0.0');
-    assert.equal(result.toVersion, LATEST_SCHEMA_VERSION);
-    assert.equal(result.config.schemaVersion, LATEST_SCHEMA_VERSION);
-  });
-
-  it('does not migrate if already at latest', () => {
-    const config = {
-      schemaVersion: LATEST_SCHEMA_VERSION,
-      reviewers: { codereview: { agent: 'nibbler', dimension: 'Code quality', charterPath: 'c.md' } },
-      threadResolution: { requireReplyBeforeResolve: true, templates: { addressed: '{sha}', dismissed: '{j}' } },
-      feedbackSources: ['squad-agents'],
-    };
-
-    const result = migrateConfig(config);
-    assert.equal(result.migrated, false);
-  });
-});
-
-describe('CLI integration - migrate', () => {
-  let tempDir;
-
-  beforeEach(() => { tempDir = createTempRepo(); });
-  afterEach(() => { rmSync(tempDir, { recursive: true, force: true }); });
-
-  it('migrate upgrades config version', () => {
-    const result = spawnSync(process.execPath, [CLI_PATH, 'migrate'], {
-      cwd: tempDir,
-      encoding: 'utf8',
-    });
-    assert.equal(result.status, 0, `stderr: ${result.stderr}`);
-    const output = JSON.parse(result.stdout);
-    assert.equal(output.migrated, true);
-    assert.equal(output.toVersion, LATEST_SCHEMA_VERSION);
-
-    // Verify file was updated
-    const config = JSON.parse(readFileSync(join(tempDir, 'reviews', 'config.json'), 'utf8'));
-    assert.equal(config.schemaVersion, LATEST_SCHEMA_VERSION);
   });
 });
 

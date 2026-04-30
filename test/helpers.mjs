@@ -99,7 +99,7 @@ export function mockFetch(responses = []) {
 
 export function createMockConfig() {
   return {
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     reviewers: {
       codereview: {
         agent: 'nibbler',

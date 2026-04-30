@@ -2,7 +2,7 @@
  * Gate status: check review gate status for a PR without running as CI.
  */
 
-import { loadConfig } from './review-config.mjs';
+import { loadConfig, resolveBotLogin } from './review-config.mjs';
 
 const GITHUB_API_BASE_URL = 'https://api.github.com';
 const GITHUB_API_VERSION = '2022-11-28';
@@ -64,15 +64,16 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
 
   for (const role of effectiveRoles) {
     const reviewer = config.reviewers[role];
-    const botLogin = reviewer?.botLogin || null;
+    const botLogin = resolveBotLogin(role, repoRoot);
 
-    // Find reviews from this role's bot — match on botLogin if configured,
-    // otherwise fall back to heuristic matching
+    // Find reviews from this role's bot — match on botLogin if resolved,
+    // otherwise fail clearly (identity must be configured)
     const roleReviews = allReviews.filter(r => {
       const login = r.user?.login?.toLowerCase() || '';
       if (botLogin) {
         return login === botLogin.toLowerCase();
       }
+      // Fallback heuristic when identity is not configured
       return (
         login.includes(role.toLowerCase()) ||
         login === `${role}-bot` ||

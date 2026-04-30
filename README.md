@@ -77,14 +77,12 @@ Edit `reviews/config.json` and map each role slug to your team's reviewer agent:
       "agent": "nibbler",
       "dimension": "Code quality, correctness, test coverage",
       "charterPath": ".squad/agents/nibbler/charter.md",
-      "botLogin": "sqd-nibbler[bot]",
       "gateRule": { "required": "always" }
     },
     "security": {
       "agent": "zapp",
       "dimension": "Security surface, injection, auth, trust boundaries",
       "charterPath": ".squad/agents/zapp/charter.md",
-      "botLogin": "sqd-zapp[bot]",
       "gateRule": {
         "required": "conditional",
         "bypassWhen": { "labels": ["squad:chore-auto"] },
@@ -95,7 +93,6 @@ Edit `reviews/config.json` and map each role slug to your team's reviewer agent:
       "agent": "amy",
       "dimension": "Documentation completeness, changeset quality",
       "charterPath": ".squad/agents/amy/charter.md",
-      "botLogin": "sqd-amy[bot]",
       "gateRule": {
         "required": "conditional",
         "requiredWhen": { "paths": ["packages/*/src/**", "src/**"] },
@@ -161,7 +158,6 @@ For PRs, the canonical approval signal is a native GitHub review with state `APP
 | `squad-reviews scaffold-gate [--roles r1,r2] [--dry-run]` | Generate review gate CI workflows |
 | `squad-reviews gate-status --pr N [--owner O --repo R]` | Check gate status for a PR |
 | `squad-reviews report --pr N [--owner O --repo R]` | Full review report for a PR |
-| `squad-reviews migrate` | Migrate config to latest schema version |
 | `squad-reviews request-pr-review --pr N --reviewer ROLE` | Route PR to reviewer |
 | `squad-reviews execute-pr-review --pr N --role ROLE --event EVENT [--body TEXT]` | Post PR review |
 | `squad-reviews acknowledge-feedback --pr N` | List unresolved threads |
@@ -193,6 +189,10 @@ These tools are available to Copilot CLI agents when the extension is installed:
 | `squad_reviews_setup` | Create config from template (use `--force` to overwrite) |
 | `squad_reviews_init` | Install extension files, SKILL.md, and template into target repo |
 | `squad_reviews_scaffold_gate` | Scaffold review gate CI workflows |
+| `squad_reviews_generate_config` | Generate config scaffold from squad-identity |
+| `squad_reviews_dispatch_review` | **(Coordinator)** Assign a role to review a PR (label + comment) |
+| `squad_reviews_blocked_prs` | **(Coordinator)** List PRs blocked on pending reviews |
+| `squad_reviews_pending_reviews` | **(Coordinator)** Show which roles still need to approve a PR |
 
 ---
 
@@ -202,7 +202,7 @@ These tools are available to Copilot CLI agents when the extension is installed:
 
 ### `schemaVersion`
 
-Currently supports `"1.0.0"` and `"1.1.0"`. Use `squad-reviews migrate` to upgrade.
+Currently requires `"1.1.0"`. Bot login is derived automatically from `squad-identity` configuration.
 
 ### `reviewers`
 
@@ -213,7 +213,6 @@ Non-empty object keyed by role slug (e.g., `codereview`, `security`, `docs`):
 | `agent` | string | ✅ | Squad agent name that owns the review |
 | `dimension` | string | ✅ | Human-readable review scope |
 | `charterPath` | string | ✅ | Repo-local charter file used as review rubric |
-| `botLogin` | string | ❌ | GitHub App bot login (e.g., `sqd-zapp[bot]`) for precise reviewer matching |
 | `gateRule` | object | ❌ | Gate requirement configuration (see below) |
 
 ### `gateRule`
@@ -370,14 +369,18 @@ This ensures each review is attributed to the correct bot account without squad-
 
 ### Token fallback order
 
-If `token` is not passed explicitly:
+**Extension tools** require an explicit `token` parameter — agents must call `squad_identity_resolve_token` first.
+
+**CLI commands** use an env-var fallback chain (for CI/scripting):
 
 1. `SQUAD_REVIEW_TOKEN_<ROLE>` (e.g., `SQUAD_REVIEW_TOKEN_SECURITY`)
 2. `SQUAD_REVIEW_TOKEN`
 3. `GH_TOKEN`
 4. `GITHUB_TOKEN`
 
-Install and configure identity first, then map each reviewer role's `botLogin` to the corresponding app-slug from `squad-identity`.
+Install and configure identity first. Bot login for each reviewer role is derived automatically from the `squad-identity` config (via `apps[role].appSlug`).
+
+> **Note:** GitHub does not support requesting native reviews from bot accounts — only org members and teams can be requested as reviewers. The review-dispatch mechanism uses labels and comments instead.
 
 ---
 
@@ -426,7 +429,7 @@ bin/                     CLI entrypoint
 extensions/squad-reviews/
   extension.mjs          Copilot CLI extension (tool registrations)
   lib/
-    review-config.mjs    Config loading, validation, migration
+    review-config.mjs    Config loading, validation, bot-login derivation
     scaffold-gate.mjs    Gate workflow generation
     gate-status.mjs      Gate status checking
     execute-review.mjs   PR review execution

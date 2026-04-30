@@ -4,24 +4,26 @@
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadConfig } from './review-config.mjs';
+import { loadConfig, resolveBotLogin } from './review-config.mjs';
 
 /**
  * Generate the reusable workflow YAML content.
  * @param {string[]} roles - reviewer role slugs
- * @param {object} config - loaded config (for botLogin lookups)
+ * @param {object} config - loaded config
+ * @param {string} repoRoot - repo root for identity config lookup
  * @returns {string}
  */
-export function generateReusableWorkflow(roles, config = {}) {
+export function generateReusableWorkflow(roles, config = {}, repoRoot = '.') {
   const rolesDefault = roles.join(',');
 
-  // Build role metadata from config
+  // Build role metadata — derive botLogin from squad-identity
   const botLoginMap = {};
   const gateRulesMap = {};
   for (const role of roles) {
     const reviewer = config.reviewers?.[role];
-    if (reviewer?.botLogin) {
-      botLoginMap[role] = reviewer.botLogin;
+    const botLogin = resolveBotLogin(role, repoRoot);
+    if (botLogin) {
+      botLoginMap[role] = botLogin;
     }
     if (reviewer?.gateRule) {
       gateRulesMap[role] = reviewer.gateRule;
@@ -316,7 +318,7 @@ export function scaffoldGate(repoRoot, { roles, dryRun = false } = {}) {
   const reusablePath = join(workflowsDir, 'squad-review-gate.yml');
   const callerPath = join(workflowsDir, 'review-gate.yml');
 
-  const reusableContent = generateReusableWorkflow(effectiveRoles, config);
+  const reusableContent = generateReusableWorkflow(effectiveRoles, config, repoRoot);
   const callerContent = generateCallerWorkflow(effectiveRoles);
 
   if (dryRun) {

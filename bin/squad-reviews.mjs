@@ -12,7 +12,7 @@ import { appendAuditEntry } from '../extensions/squad-reviews/lib/audit-log.mjs'
 import { checkGateStatus } from '../extensions/squad-reviews/lib/gate-status.mjs';
 import { executePrReview } from '../extensions/squad-reviews/lib/execute-review.mjs';
 import { executeIssueReview } from '../extensions/squad-reviews/lib/issue-review.mjs';
-import { loadConfig, migrateConfig, LATEST_SCHEMA_VERSION } from '../extensions/squad-reviews/lib/review-config.mjs';
+import { loadConfig, SCHEMA_VERSION } from '../extensions/squad-reviews/lib/review-config.mjs';
 import { requestIssueReview, requestPrReview } from '../extensions/squad-reviews/lib/request-review.mjs';
 import { resolveThread } from '../extensions/squad-reviews/lib/resolve-thread.mjs';
 import { scaffoldGate } from '../extensions/squad-reviews/lib/scaffold-gate.mjs';
@@ -25,7 +25,6 @@ const COMMANDS = {
   'scaffold-gate': 'Scaffold review gate CI workflows',
   'gate-status': 'Check review gate status for a PR',
   report: 'Show review metrics and status for recent PRs',
-  migrate: 'Migrate config to latest schema version',
   'request-pr-review': 'Request PR review',
   'execute-pr-review': 'Execute PR review',
   'acknowledge-feedback': 'List unresolved review feedback',
@@ -42,7 +41,6 @@ const COMMAND_USAGE = {
   'scaffold-gate': 'squad-reviews scaffold-gate [--roles <role1,role2,...>] [--dry-run] [--json]',
   'gate-status': 'squad-reviews gate-status --pr <number> [--roles <role1,role2,...>] [--owner <owner> --repo <repo>]',
   report: 'squad-reviews report [--owner <owner> --repo <repo>]',
-  migrate: 'squad-reviews migrate [--json]',
   'request-pr-review': 'squad-reviews request-pr-review --pr <number> --reviewer <role> [--owner <owner> --repo <repo>]',
   'execute-pr-review': 'squad-reviews execute-pr-review --pr <number> --role <role> --event <COMMENT|REQUEST_CHANGES|APPROVE> [--body <text>] [--owner <owner> --repo <repo>]',
   'acknowledge-feedback': 'squad-reviews acknowledge-feedback --pr <number> [--owner <owner> --repo <repo>]',
@@ -272,19 +270,15 @@ function resolveRoleTokenCli(roleSlug) {
   // Try squad-identity CLI to resolve per-role token
   try {
     const repoRoot = findRepoRoot();
-    const config = loadConfig(repoRoot);
-    const reviewer = config.reviewers[roleSlug];
-    if (reviewer?.agent) {
-      const result = spawnSync('squad-identity', ['resolve-token', '--role', reviewer.agent], {
-        cwd: repoRoot,
-        timeout: 15_000,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      const token = result?.stdout?.trim();
-      if (token && result.status === 0) {
-        return { token, source: `squad-identity (${reviewer.agent})` };
-      }
+    const result = spawnSync('squad-identity', ['resolve-token', '--role', roleSlug], {
+      cwd: repoRoot,
+      timeout: 15_000,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const token = result?.stdout?.trim();
+    if (token && result.status === 0) {
+      return { token, source: `squad-identity (${roleSlug})` };
     }
   } catch {
     // squad-identity not available — fall through
@@ -807,36 +801,6 @@ async function commandReport(values) {
   };
 }
 
-async function commandMigrate() {
-  const repoRoot = findRepoRoot();
-  const configPath = join(repoRoot, CONFIG_RELATIVE_PATH);
-
-  if (!existsSync(configPath)) {
-    throw new Error(`Config not found at ${configPath}. Run 'squad-reviews setup' first.`);
-  }
-
-  const rawConfig = JSON.parse(readFileSync(configPath, 'utf8'));
-  const result = migrateConfig(rawConfig);
-
-  if (!result.migrated) {
-    return {
-      migrated: false,
-      version: result.config.schemaVersion,
-      message: `Config is already at latest version (${result.toVersion}).`,
-    };
-  }
-
-  writeFileSync(configPath, JSON.stringify(result.config, null, 2) + '\n', 'utf8');
-
-  return {
-    migrated: true,
-    fromVersion: result.fromVersion,
-    toVersion: result.toVersion,
-    configPath,
-    message: `Migrated config from ${result.fromVersion} to ${result.toVersion}.`,
-  };
-}
-
 const COMMAND_HANDLERS = {
   setup: {
     options: {
@@ -879,10 +843,6 @@ const COMMAND_HANDLERS = {
       ...SHARED_REPO_OPTIONS,
     },
     handler: commandReport,
-  },
-  migrate: {
-    options: {},
-    handler: commandMigrate,
   },
   'request-pr-review': {
     options: {
