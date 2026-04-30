@@ -70,7 +70,15 @@ squad-reviews init
 
 ### Step 2: Configure reviewers
 
-Edit `.squad/reviews/config.json` and map each role slug to your team's reviewer agent:
+If you already have `squad-identity` configured, Copilot can generate your review config automatically. In a Copilot CLI session, call:
+
+```
+squad_reviews_generate_config
+```
+
+This reads your `.squad/identity/config.json`, maps each role to its agent, and scaffolds `.squad/reviews/config.json` with deterministic fields filled in and placeholders for ambiguous ones.
+
+Alternatively, edit `.squad/reviews/config.json` manually and map each role slug to your team's reviewer agent:
 
 ```json
 {
