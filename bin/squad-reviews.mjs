@@ -466,7 +466,7 @@ async function commandSetup(values) {
 
   const labelsCreated = [];
   try {
-    const { token } = resolveToken(false);
+    const { token, source } = resolveToken(false);
     if (token && existsSync(configDest)) {
       const config = loadConfig(target);
       const github = resolveRepoCoordinates(target, { required: false });
@@ -486,17 +486,30 @@ async function commandSetup(values) {
                 body: JSON.stringify({ name: label, color: '0e8a16', description: `Approved by ${role} reviewer` }),
               }
             );
-            if (response.ok || response.status === 422) {
+            if (response.ok) {
               labelsCreated.push(label);
-              log(`  ✓ Label: ${label}`);
+              log(`  ✓ Created: ${label}`);
+            } else if (response.status === 422) {
+              labelsCreated.push(label);
+              log(`  ✓ Exists: ${label}`);
+            } else {
+              log(`  ⚠ Failed to create ${label} (${response.status})`);
             }
-          } catch { /* best effort */ }
+          } catch (e) {
+            log(`  ⚠ Failed to create ${label}: ${e.message}`);
+          }
         }
+      } else {
+        log(`  ⏭ No GitHub remote detected — skipping label creation`);
       }
-    } else {
+    } else if (!token) {
       log(`  ⏭ No token — skipping label creation`);
+    } else {
+      log(`  ⏭ No config — skipping label creation`);
     }
-  } catch { /* best-effort */ }
+  } catch (e) {
+    log(`  ⚠ Label creation failed: ${e.message}`);
+  }
 
   log(`\n━━━ Phase 3: Review Gate ━━━\n`);
 
