@@ -375,8 +375,11 @@ async function commandDoctor() {
     },
     {
       name: 'token',
-      ok: Boolean(token.token),
-      details: token.token ? token.source : `Set one of ${TOKEN_ENV_VARS.join(', ')}`,
+      ok: true, // Token is optional for local dev — agents resolve at runtime via squad_identity_resolve_token
+      warn: !token.token,
+      details: token.token
+        ? token.source
+        : `No env var set (agents use squad_identity_resolve_token at runtime; for CLI, set ${TOKEN_ENV_VARS.join(', ')})`,
     },
   ];
 
@@ -511,7 +514,8 @@ async function commandSetup(values) {
 
   const doctorResult = await commandDoctor();
   for (const check of doctorResult.checks) {
-    log(`  ${check.ok ? '✓' : '✗'} ${check.name}: ${check.details}`);
+    const icon = check.warn ? '⚠' : check.ok ? '✓' : '✗';
+    log(`  ${icon} ${check.name}: ${check.details}`);
   }
 
   log(`\n✅ squad-reviews setup complete.`);
