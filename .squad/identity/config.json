@@ -1,0 +1,46 @@
+{
+  "_comment": "Copy this file to .squad/identity/config.json and fill in your GitHub App details. Remove this _comment field.",
+  "tier": "per-role",
+  "agentNameMap": {
+    "holdo": "lead",
+    "poe": "backend",
+    "rose": "tester",
+    "scribe": "scribe"
+  },
+  "apps": {
+    "lead": {
+      "appId": 0,
+      "appSlug": "squad-lead",
+      "installationId": 0,
+      "roleSlug": "lead",
+      "tier": "per-role"
+    },
+    "backend": {
+      "appId": 0,
+      "appSlug": "squad-backend",
+      "installationId": 0,
+      "roleSlug": "backend",
+      "tier": "per-role"
+    },
+    "tester": {
+      "appId": 0,
+      "appSlug": "squad-tester",
+      "installationId": 0,
+      "roleSlug": "tester",
+      "tier": "per-role"
+    },
+    "scribe": {
+      "appId": 0,
+      "appSlug": "squad-scribe",
+      "installationId": 0,
+      "roleSlug": "scribe",
+      "tier": "per-role"
+    }
+  },
+  "attestation": {
+    "_comment": "Audit trail configuration for bot-authored writes.",
+    "enabled": true,
+    "log_dir": ".squad/attestation",
+    "rotation": "daily"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "universe_usage_history": [
+    {
+      "universe": "Star Wars",
+      "assigned_at": "2026-04-30T00:16:28Z",
+      "project": "squad-reviews"
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "squad-reviews-init-001": {
+      "universe": "Star Wars",
+      "era": "Resistance",
+      "assigned_at": "2026-04-30T00:16:28Z",
+      "agents": ["Holdo", "Poe", "Rose"],
+      "reason": "TypeScript extension team — compact, focused, Resistance era fits the review governance theme"
+    }
+  }
+}

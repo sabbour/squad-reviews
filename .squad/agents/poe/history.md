@@ -15,4 +15,10 @@
 
 ## Learnings
 
+### 2026-04-29T17:26:28.335-07:00
+- Scaffolded the npm package surface: `package.json`, `.changeset/config.json`, `LICENSE`, and `CHANGELOG.md`.
+- Created the initial runtime and packaging directories: `bin/`, `extensions/squad-reviews/lib/`, `test/`, `reviews/`, and `squad-reviews/`.
+- Mirrored the `@sabbour/squad-identity` package shape with ESM, Changesets scripts, a CLI bin entry, npm publish metadata, and a peer dependency on `@sabbour/squad-identity`.
+- Updated `.gitignore` to exclude `node_modules/` and release tarballs (`*.tgz`).
+
 <!-- Append entries below -->

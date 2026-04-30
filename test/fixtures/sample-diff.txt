@@ -1,0 +1,10 @@
+diff --git a/src/app.mjs b/src/app.mjs
+index 1111111..2222222 100644
+--- a/src/app.mjs
++++ b/src/app.mjs
+@@ -1,4 +1,4 @@
+-export function answer() {
+-  return 41;
++export function answer(question = 41) {
++  return question + 1;
+ }

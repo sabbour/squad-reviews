@@ -1,0 +1,50 @@
+{
+  "name": "@sabbour/squad-reviews",
+  "version": "0.0.1",
+  "description": "Copilot CLI extension for review governance.",
+  "type": "module",
+  "bin": {
+    "squad-reviews": "./bin/squad-reviews.mjs"
+  },
+  "files": [
+    "bin/",
+    "extensions/",
+    "squad-reviews/SKILL.md",
+    "reviews/config.json.template",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:watch": "node --test --watch test/*.test.mjs",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "changeset publish"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "@sabbour/squad-identity": ">=1.0.0"
+  },
+  "keywords": [
+    "review",
+    "github",
+    "squad",
+    "copilot",
+    "governance"
+  ],
+  "author": "Ahmed Sabbour",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sabbour/squad-reviews.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.0"
+  }
+}

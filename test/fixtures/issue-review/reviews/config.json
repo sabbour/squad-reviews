@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0.0",
+  "reviewers": {
+    "security": {
+      "agent": "zapp",
+      "dimension": "Security surface, injection, auth, trust boundaries",
+      "charterPath": ".squad/agents/zapp/charter.md"
+    },
+    "docs": {
+      "agent": "amy",
+      "dimension": "Documentation completeness, changeset quality",
+      "charterPath": ".squad/agents/amy/charter.md"
+    }
+  },
+  "threadResolution": {
+    "requireReplyBeforeResolve": true,
+    "templates": {
+      "addressed": "Addressed in {sha}: {description}",
+      "dismissed": "Dismissed: {justification}"
+    }
+  },
+  "feedbackSources": ["squad-agents", "humans", "github-copilot-bot"]
+}

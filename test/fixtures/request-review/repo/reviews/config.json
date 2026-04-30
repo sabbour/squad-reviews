@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0.0",
+  "reviewers": {
+    "security": {
+      "agent": "Rose",
+      "dimension": "security risks and abuse resistance",
+      "charterPath": ".squad/agents/rose/charter.md"
+    },
+    "design": {
+      "agent": "Holdo",
+      "dimension": "product shape and UX coherence",
+      "charterPath": ".squad/agents/holdo/charter.md"
+    }
+  },
+  "threadResolution": {
+    "requireReplyBeforeResolve": true,
+    "templates": {
+      "addressed": "Addressed in {{commitSha}}",
+      "dismissed": "Not changing this because {{justification}}"
+    }
+  },
+  "feedbackSources": [
+    "human",
+    "copilot"
+  ]
+}
