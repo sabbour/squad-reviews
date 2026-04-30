@@ -188,7 +188,12 @@ async function executeResolveFlow({
   assertPositiveInteger(prNumber, 'pr');
 
   if (commentId !== undefined) {
+    if (typeof commentId === 'string' && /^[A-Za-z]/.test(commentId)) {
+      throw new Error('commentId must be a numeric database ID, not a GraphQL node_id');
+    }
     assertPositiveInteger(commentId, 'commentId');
+  } else {
+    throw new Error('commentId is required (must be a numeric database ID)');
   }
 
   const formattedReply = formatReply(config.threadResolution.templates, {

@@ -78,6 +78,17 @@ jobs:
 
             core.info(\`Checking review gate for PR #\${prNumber}\`);
 
+            // Fast-lane: squad:chore-auto bypasses the entire gate
+            {
+              const { data: prData } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+              const labels = prData.labels.map(l => l.name.toLowerCase());
+              if (labels.includes('squad:chore-auto')) {
+                core.info('⏭️ squad:chore-auto label detected — bypassing review gate');
+                await core.summary.addRaw('## 🔒 Review Gate Summary\\n\\n⏭️ Bypassed — \`squad:chore-auto\` label present.\\n').write();
+                return;
+              }
+            }
+
             // Fetch PR details (labels + changed files)
             const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
             const prLabels = pr.labels.map(l => l.name.toLowerCase());

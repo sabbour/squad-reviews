@@ -194,8 +194,7 @@ export async function fetchPrThreads(token, owner, repo, prNumber) {
 
       return {
         threadId: metadata?.threadId ?? comment.node_id,
-        commentId: comment.node_id,
-        commentDatabaseId: metadata?.commentDatabaseId ?? comment.id ?? null,
+        commentId: metadata?.commentDatabaseId ?? comment.id ?? null,
         author: comment.user?.login ?? null,
         body: comment.body ?? '',
         path: comment.path ?? null,
