@@ -1,5 +1,14 @@
 # @sabbour/squad-reviews
 
+## 1.2.1
+
+### Patch Changes
+
+- f632ef8: Fix extension tool permissions and node binary resolution
+
+  - Add `skipPermission: true` to all tool definitions to prevent "Permission denied" errors in Copilot CLI
+  - Replace `process.execPath` with resolved `node` binary path — `process.execPath` returns the copilot binary in extension context, breaking child process spawns
+
 ## 1.2.0
 
 ### Minor Changes
