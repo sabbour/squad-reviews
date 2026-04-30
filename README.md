@@ -360,13 +360,13 @@ Approval is signaled by the `{role}:approved` label on the issue. This supports 
 ```mermaid
 sequenceDiagram
     participant Agent
-    participant squad-identity
     participant squad-reviews
+    participant squad-identity
     participant GitHub
 
-    Agent->>squad-identity: resolve_token(role: "security")
-    squad-identity-->>Agent: installation token for sqd-zapp[bot]
-    Agent->>squad-reviews: execute_pr_review(pr, token, event: APPROVE)
+    Agent->>squad-reviews: execute_pr_review(pr, roleSlug: "security", event: APPROVE)
+    squad-reviews->>squad-identity: auto-resolve token for role "security"
+    squad-identity-->>squad-reviews: installation token (internal, never exposed)
     squad-reviews->>GitHub: POST review as sqd-zapp[bot]
     GitHub-->>squad-reviews: review created
     squad-reviews-->>Agent: { submitted: true }
@@ -374,21 +374,13 @@ sequenceDiagram
 
 ### Per-role token resolution
 
-The execute tools (`squad_reviews_execute_pr_review`, `squad_reviews_execute_issue_review`) accept an optional `token` parameter. The intended workflow for agents:
+The execute tools (`squad_reviews_execute_pr_review`, `squad_reviews_execute_issue_review`) automatically resolve tokens internally using the squad-identity lease system. When a `roleSlug` is provided, the token is resolved for that specific role, ensuring each review is attributed to the correct bot account.
 
-```
-1. Call squad_identity_resolve_token({ roleSlug: "security" })
-   → returns the installation token for sqd-zapp[bot]
-
-2. Call squad_reviews_execute_pr_review({ ..., token: "<resolved token>" })
-   → posts the review as sqd-zapp[bot]
-```
-
-This ensures each review is attributed to the correct bot account without squad-reviews needing to access squad-identity internals.
+No manual token passing is needed — tokens never appear in tool call parameters.
 
 ### Token fallback order
 
-**Extension tools** require an explicit `token` parameter — agents must call `squad_identity_resolve_token` first.
+**Extension tools** auto-resolve tokens via squad-identity's lease system (resolve → create lease → exchange).
 
 **CLI commands** use an env-var fallback chain (for CI/scripting):
 

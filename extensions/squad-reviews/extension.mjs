@@ -40,7 +40,49 @@ const CONFIG_TEMPLATE_PATH = join(REVIEWS_DIR, 'config.json.template');
 const CONFIG_PATH = join(REVIEWS_DIR, 'config.json');
 const GITHUB_API_VERSION = '2022-11-28';
 const GITHUB_API_BASE_URL = 'https://api.github.com';
-const MISSING_TOKEN_ERROR = 'Missing GitHub token. Set SQUAD_REVIEW_TOKEN, GH_TOKEN, or GITHUB_TOKEN.';
+
+// ---------------------------------------------------------------------------
+// Token auto-resolution via squad-identity lease system
+// ---------------------------------------------------------------------------
+const IDENTITY_LIB = join(__dirname, '..', 'squad-identity', 'lib');
+
+let _leaseState = null; // { scopeId, role, deadlineUnix, remainingOps }
+
+async function getToken(roleSlug) {
+  const role = roleSlug || process.env.ROLE_SLUG || 'lead';
+
+  // Check if current lease is still usable (>60s remaining, >0 ops)
+  if (_leaseState && _leaseState.role === role) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (_leaseState.remainingOps > 0 && nowSec < _leaseState.deadlineUnix - 60) {
+      try {
+        const { exchangeLease } = await import(join(IDENTITY_LIB, 'token-lease-store.mjs'));
+        const result = exchangeLease(_leaseState.scopeId, role);
+        _leaseState.remainingOps = result.remainingOps;
+        return result.token;
+      } catch {
+        _leaseState = null;
+      }
+    } else {
+      _leaseState = null;
+    }
+  }
+
+  // Resolve a fresh token and create a new lease
+  const { resolveToken: identityResolveToken } = await import(join(IDENTITY_LIB, 'resolve-token.mjs'));
+  const token = await identityResolveToken(REPO_ROOT, role);
+  if (!token) {
+    throw new Error(`Could not resolve token for role "${role}". Run squad_identity_doctor for diagnostics.`);
+  }
+
+  const { createLease, exchangeLease } = await import(join(IDENTITY_LIB, 'token-lease-store.mjs'));
+  const lease = createLease({ role, token, maxOps: 500, maxTimeSec: 3500 });
+  _leaseState = { scopeId: lease.scopeId, role, deadlineUnix: lease.deadlineUnix, remainingOps: lease.remainingOps };
+
+  const result = exchangeLease(lease.scopeId, role);
+  _leaseState.remainingOps = result.remainingOps;
+  return result.token;
+}
 
 function resolveRepoRoot(startDir) {
   const candidates = [
@@ -78,20 +120,6 @@ function jsonHandler(fn) {
       return JSON.stringify({ error: normalizeError(error) }, null, 2);
     }
   };
-}
-
-function resolveToken() {
-  return process.env.SQUAD_REVIEW_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || null;
-}
-
-function requireToken() {
-  const token = resolveToken();
-
-  if (!token) {
-    throw new Error(`${MISSING_TOKEN_ERROR} You can export one directly or provision one through squad-identity.`);
-  }
-
-  return token;
 }
 
 function normalizePositiveInteger(value, fieldName) {
@@ -313,9 +341,10 @@ async function runDoctor() {
       report.issues.push('Could not determine GitHub owner/repo to verify review labels.');
     } else {
       try {
+        const doctorToken = await getToken();
         const labels = await fetchAllLabels({
           ...coordinates,
-          token: resolveToken(),
+          token: doctorToken,
         });
         const existingLabels = new Set(labels.map((label) => label.name));
         const expectedLabels = Object.keys(config.reviewers).map((roleSlug) => `${roleSlug}:approved`);
@@ -392,7 +421,7 @@ const session = await joinSession({
     },
     {
       name: 'squad_reviews_execute_pr_review',
-      description: 'Execute a PR review using the configured reviewer charter and GitHub bot token. Validates review quality before posting. Call squad_identity_resolve_token first to get the token.',
+      description: 'Execute a PR review using the configured reviewer charter and GitHub bot identity. Validates review quality before posting.',
       skipPermission: true,
       parameters: {
         type: 'object',
@@ -419,39 +448,37 @@ const session = await joinSession({
               required: ['path', 'line', 'body'],
             },
           },
-          token: { type: 'string', description: 'GitHub token for this role (from squad_identity_resolve_token). Required.' },
           owner: { type: 'string' },
           repo: { type: 'string' },
         },
-        required: ['pr', 'roleSlug', 'event', 'token', 'owner', 'repo'],
+        required: ['pr', 'roleSlug', 'event', 'owner', 'repo'],
       },
-      handler: jsonHandler(({ pr, roleSlug, event, reviewBody, comments, token, owner, repo }) => {
-        if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+      handler: jsonHandler(async ({ pr, roleSlug, event, reviewBody, comments, owner, repo }) => {
+        const token = await getToken(roleSlug);
         return executePrReview(REPO_ROOT, token, { pr, roleSlug, event, reviewBody, comments, owner, repo });
       }),
     },
     {
       name: 'squad_reviews_acknowledge_feedback',
-      description: 'List unresolved PR review threads that must be addressed or dismissed. Call squad_identity_resolve_token first.',
+      description: 'List unresolved PR review threads that must be addressed or dismissed.',
       skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
           pr: { type: 'number' },
-          token: { type: 'string', description: 'GitHub token (from squad_identity_resolve_token). Required.' },
           owner: { type: 'string' },
           repo: { type: 'string' },
         },
-        required: ['pr', 'token', 'owner', 'repo'],
+        required: ['pr', 'owner', 'repo'],
       },
-      handler: jsonHandler(({ pr, token, owner, repo }) => {
-        if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+      handler: jsonHandler(async ({ pr, owner, repo }) => {
+        const token = await getToken();
         return acknowledgeFeedback(REPO_ROOT, token, { pr, owner, repo });
       }),
     },
     {
       name: 'squad_reviews_resolve_thread',
-      description: 'Reply to a PR review thread, then resolve it as addressed or dismissed. Call squad_identity_resolve_token first.',
+      description: 'Reply to a PR review thread, then resolve it as addressed or dismissed.',
       skipPermission: true,
       parameters: {
         type: 'object',
@@ -461,14 +488,13 @@ const session = await joinSession({
           commentId: { type: 'string' },
           reply: { type: 'string' },
           action: { type: 'string', enum: ['addressed', 'dismissed'] },
-          token: { type: 'string', description: 'GitHub token (from squad_identity_resolve_token). Required.' },
           owner: { type: 'string' },
           repo: { type: 'string' },
         },
-        required: ['pr', 'threadId', 'commentId', 'reply', 'action', 'token', 'owner', 'repo'],
+        required: ['pr', 'threadId', 'commentId', 'reply', 'action', 'owner', 'repo'],
       },
-      handler: jsonHandler(({ pr, threadId, commentId, reply, action, token, owner, repo }) => {
-        if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+      handler: jsonHandler(async ({ pr, threadId, commentId, reply, action, owner, repo }) => {
+        const token = await getToken();
         return resolveThread(REPO_ROOT, token, {
           pr,
           threadId,
@@ -500,7 +526,7 @@ const session = await joinSession({
     },
     {
       name: 'squad_reviews_execute_issue_review',
-      description: 'Execute an issue review and optionally apply the approval label. Call squad_identity_resolve_token first to get the token.',
+      description: 'Execute an issue review and optionally apply the approval label.',
       skipPermission: true,
       parameters: {
         type: 'object',
@@ -509,14 +535,13 @@ const session = await joinSession({
           roleSlug: { type: 'string' },
           reviewBody: { type: 'string' },
           approved: { type: 'boolean' },
-          token: { type: 'string', description: 'GitHub token for this role (from squad_identity_resolve_token). Required.' },
           owner: { type: 'string' },
           repo: { type: 'string' },
         },
-        required: ['issue', 'roleSlug', 'reviewBody', 'approved', 'token', 'owner', 'repo'],
+        required: ['issue', 'roleSlug', 'reviewBody', 'approved', 'owner', 'repo'],
       },
-      handler: jsonHandler(({ issue, roleSlug, reviewBody, approved, token, owner, repo }) => {
-        if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+      handler: jsonHandler(async ({ issue, roleSlug, reviewBody, approved, owner, repo }) => {
+        const token = await getToken(roleSlug);
         return executeIssueReview(REPO_ROOT, token, { issue, roleSlug, reviewBody, approved, owner, repo });
       }),
     },
@@ -609,13 +634,12 @@ const session = await joinSession({
     },
     {
       name: 'squad_reviews_gate_status',
-      description: 'Check review gate status for a PR. Returns which roles have approved, which are pending, and unresolved thread count. Call squad_identity_resolve_token first.',
+      description: 'Check review gate status for a PR. Returns which roles have approved, which are pending, and unresolved thread count.',
       skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
           pr: { type: 'number', description: 'Pull request number' },
-          token: { type: 'string', description: 'GitHub token (from squad_identity_resolve_token). Required.' },
           owner: { type: 'string', description: 'Repository owner' },
           repo: { type: 'string', description: 'Repository name' },
           roles: {
@@ -624,10 +648,10 @@ const session = await joinSession({
             description: 'Roles to check. Defaults to all from config.',
           },
         },
-        required: ['pr', 'token', 'owner', 'repo'],
+        required: ['pr', 'owner', 'repo'],
       },
-      handler: jsonHandler(({ pr, token, owner, repo, roles }) => {
-        if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+      handler: jsonHandler(async ({ pr, owner, repo, roles }) => {
+        const token = await getToken();
         return checkGateStatus(REPO_ROOT, token, { pr, owner, repo, roles });
       }),
     },
@@ -697,22 +721,21 @@ const session = await joinSession({
     // ─── Coordinator Tools ──────────────────────────────────────────────────────
     {
       name: 'squad_reviews_dispatch_review',
-      description: 'Request a review from a specific role on a PR. Applies a label and posts a comment to notify the reviewer agent. Call squad_identity_resolve_token first.',
+      description: 'Request a review from a specific role on a PR. Applies a label and posts a comment to notify the reviewer agent.',
       skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
           pr: { type: 'number', description: 'Pull request number' },
           role: { type: 'string', description: 'Reviewer role slug (e.g., "codereview", "security")' },
-          token: { type: 'string', description: 'GitHub token (from squad_identity_resolve_token). Required.' },
           owner: { type: 'string', description: 'Repository owner' },
           repo: { type: 'string', description: 'Repository name' },
           message: { type: 'string', description: 'Optional message to include in the dispatch comment.' },
         },
-        required: ['pr', 'role', 'token', 'owner', 'repo'],
+        required: ['pr', 'role', 'owner', 'repo'],
       },
-      handler: jsonHandler(async ({ pr, role, token, owner, repo, message }) => {
-        if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+      handler: jsonHandler(async ({ pr, role, owner, repo, message }) => {
+        const token = await getToken(role);
 
         const config = loadConfig(REPO_ROOT);
         if (!config.reviewers[role]) {
@@ -736,26 +759,25 @@ const session = await joinSession({
     },
     {
       name: 'squad_reviews_blocked_prs',
-      description: 'List PRs that are blocked on pending reviews. Queries GitHub for open PRs with review:*:requested labels. Call squad_identity_resolve_token first.',
+      description: 'List PRs that are blocked on pending reviews. Queries GitHub for open PRs with review:*:requested labels.',
       skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
-          token: { type: 'string', description: 'GitHub token (from squad_identity_resolve_token). Required.' },
           owner: { type: 'string', description: 'Repository owner' },
           repo: { type: 'string', description: 'Repository name' },
           role: { type: 'string', description: 'Filter by specific role. Omit for all roles.' },
         },
-        required: ['token', 'owner', 'repo'],
+        required: ['owner', 'repo'],
       },
-      handler: jsonHandler(async ({ token, owner, repo, role }) => {
-        if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+      handler: jsonHandler(async ({ owner, repo, role }) => {
+        const token = await getToken();
 
         const labelQuery = role
           ? `label:"review:${role}:requested"`
           : 'label:review';
         const query = `repo:${owner}/${repo} is:pr is:open ${labelQuery}`;
-        const url = `https://api.github.com/search/issues?q=${encodeURIComponent(query)}&per_page=50`;
+        const url = `${GITHUB_API_BASE_URL}/search/issues?q=${encodeURIComponent(query)}&per_page=50`;
 
         const response = await fetch(url, {
           headers: buildGitHubHeaders(token),
@@ -780,20 +802,19 @@ const session = await joinSession({
     },
     {
       name: 'squad_reviews_pending_reviews',
-      description: 'For a given PR, show which reviewer roles still need to approve and which have approved. Reuses the gate-status evaluator. Call squad_identity_resolve_token first.',
+      description: 'For a given PR, show which reviewer roles still need to approve and which have approved. Reuses the gate-status evaluator.',
       skipPermission: true,
       parameters: {
         type: 'object',
         properties: {
           pr: { type: 'number', description: 'Pull request number' },
-          token: { type: 'string', description: 'GitHub token (from squad_identity_resolve_token). Required.' },
           owner: { type: 'string', description: 'Repository owner' },
           repo: { type: 'string', description: 'Repository name' },
         },
-        required: ['pr', 'token', 'owner', 'repo'],
+        required: ['pr', 'owner', 'repo'],
       },
-      handler: jsonHandler(async ({ pr, token, owner, repo }) => {
-        if (!token) throw new Error('token is required. Call squad_identity_resolve_token first.');
+      handler: jsonHandler(async ({ pr, owner, repo }) => {
+        const token = await getToken();
         const status = await checkGateStatus(REPO_ROOT, token, { pr, owner, repo });
         return {
           pr,
