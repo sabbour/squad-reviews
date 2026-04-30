@@ -4,20 +4,21 @@
 [![CI](https://github.com/sabbour/squad-reviews/actions/workflows/ci.yml/badge.svg)](https://github.com/sabbour/squad-reviews/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-Copilot CLI extension and CLI for config-driven review governance across PRs, issues, review threads, and reviewer routing.
+> Config-driven review governance for [Squad](https://github.com/bradygaster/squad) agents — PRs, issues, review threads, and reviewer routing.
+
+## Why
+
+Without `squad-reviews`, review governance is ad-hoc: agents don't know who reviews what, feedback threads get lost, and there's no enforced reply-before-resolve discipline. With a config-driven review system, every PR and issue gets routed to the right reviewer by role, feedback must be explicitly addressed or dismissed, and the full review lifecycle is traceable.
 
 ## Prerequisites
 
-- Node.js 18+
-- [`@sabbour/squad-identity`](https://www.npmjs.com/package/@sabbour/squad-identity) installed and configured
-- A GitHub token available through one of:
-  - `SQUAD_REVIEW_TOKEN`
-  - `GH_TOKEN`
-  - `GITHUB_TOKEN`
+| Requirement | Check |
+|-------------|-------|
+| Node.js ≥ 18 | `node --version` |
+| [`@sabbour/squad-identity`](https://www.npmjs.com/package/@sabbour/squad-identity) installed and configured | `squad-identity doctor` |
+| GitHub token | `SQUAD_REVIEW_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` available |
 
 ## Installation
-
-Install the package:
 
 ```bash
 npm install @sabbour/squad-reviews
@@ -81,7 +82,18 @@ Minimal example:
 }
 ```
 
-## Extension Tools
+## How it works
+
+1. **Request** — route a PR or issue to a configured reviewer role.
+2. **Execute** — the reviewer uses its charter, reads the artifact, and posts review feedback.
+3. **Acknowledge** — the implementer fetches unresolved feedback threads.
+4. **Resolve** — each thread is replied to and resolved as either `addressed` or `dismissed`.
+
+For PRs, the flow uses native GitHub review events (`COMMENT` or `REQUEST_CHANGES`). For issue reviews, approval is represented by the `{role}:approved` label.
+
+---
+
+## Extension tools
 
 | Tool | Description |
 | --- | --- |
@@ -95,7 +107,7 @@ Minimal example:
 | `squad_reviews_doctor` | Run health checks for config, identity, labels, and GitHub setup. |
 | `squad_reviews_setup` | Create `reviews/config.json` from the template. |
 
-## CLI Usage
+## CLI commands
 
 ```bash
 squad-reviews status
@@ -126,6 +138,8 @@ Run command-specific help with:
 squad-reviews <command> --help
 ```
 
+---
+
 ## Configuration
 
 `reviews/config.json` uses a small, validated schema:
@@ -144,14 +158,7 @@ squad-reviews <command> --help
   - `humans`
   - `github-copilot-bot`
 
-## How It Works
-
-1. **Request** — route a PR or issue to a configured reviewer role.
-2. **Execute** — the reviewer uses its charter, reads the artifact, and posts review feedback.
-3. **Acknowledge** — the implementer fetches unresolved feedback threads.
-4. **Resolve** — each thread is replied to and resolved as either `addressed` or `dismissed`.
-
-For PRs, the flow uses native GitHub review events (`COMMENT` or `REQUEST_CHANGES`). For issue reviews, approval is represented by the `{role}:approved` label.
+---
 
 ## Integration with `@sabbour/squad-identity`
 
@@ -163,6 +170,8 @@ For PRs, the flow uses native GitHub review events (`COMMENT` or `REQUEST_CHANGE
 
 Install and configure identity first, then wire review roles to the agent charters you want enforcing governance.
 
+---
+
 ## Development
 
 ```bash
@@ -171,6 +180,8 @@ npm test
 ```
 
 Contributions should keep the package config-driven, preserve the review-thread reply-before-resolve behavior, and update tests when behavior changes.
+
+---
 
 ## License
 
