@@ -98,6 +98,19 @@ jobs:
               if (labels.includes('squad:chore-auto')) {
                 core.info('⏭️ squad:chore-auto label detected — bypassing review gate');
                 await postStatus('success', 'bypassed — squad:chore-auto');
+                // Enable auto-merge on bypass
+                try {
+                  if (!prData.auto_merge) {
+                    await github.graphql(\`mutation($prId: ID!) {
+                      enablePullRequestAutoMerge(input: { pullRequestId: $prId, mergeMethod: SQUASH }) {
+                        pullRequest { autoMergeRequest { enabledAt } }
+                      }
+                    }\`, { prId: prData.node_id });
+                    core.info(\`🔀 Auto-merge enabled for PR #\${prNumber}\`);
+                  }
+                } catch (e) {
+                  core.warning(\`Could not enable auto-merge: \${e.message}\`);
+                }
                 await core.summary.addRaw('## 🔒 Review Gate Summary\\n\\n⏭️ Bypassed — \`squad:chore-auto\` label present.\\n').write();
                 return;
               }
@@ -288,6 +301,24 @@ jobs:
             } else {
               await postStatus('success', 'all roles approved, no unresolved threads');
               core.info('✅ Review gate passed — all roles approved, no unresolved threads');
+
+              // Enable auto-merge (squash) when gate passes
+              try {
+                const { data: prData } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+                if (!prData.auto_merge) {
+                  const prNodeId = prData.node_id;
+                  await github.graphql(\`mutation($prId: ID!) {
+                    enablePullRequestAutoMerge(input: { pullRequestId: $prId, mergeMethod: SQUASH }) {
+                      pullRequest { autoMergeRequest { enabledAt } }
+                    }
+                  }\`, { prId: prNodeId });
+                  core.info(\`🔀 Auto-merge enabled for PR #\${prNumber}\`);
+                } else {
+                  core.info(\`Auto-merge already enabled for PR #\${prNumber}\`);
+                }
+              } catch (e) {
+                core.warning(\`Could not enable auto-merge: \${e.message}\`);
+              }
             }
 `;
 }
