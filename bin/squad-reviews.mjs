@@ -539,7 +539,8 @@ async function commandSetup(values) {
 
   log(`\n✅ squad-reviews setup complete.`);
   log(`\nNext steps:`);
-  log(`  1. Edit reviews/config.json to map role slugs to your team agents.`);
+  log(`  1. Use the squad_reviews_generate_config tool to scaffold reviews/config.json`);
+  log(`     from your squad-identity config, then edit dimensions and gate rules.`);
   log(`  2. Commit all generated files.`);
   log(`  3. Set the Review Gate as a required status check in branch protection.`);
 
