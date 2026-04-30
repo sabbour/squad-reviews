@@ -46,5 +46,10 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0"
+  },
+  "peerDependenciesMeta": {
+    "@sabbour/squad-identity": {
+      "optional": true
+    }
   }
 }
