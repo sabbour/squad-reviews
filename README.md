@@ -156,6 +156,7 @@ For PRs, the canonical approval signal is a native GitHub review with state `APP
 |---------|-------------|
 | `squad-reviews setup [target-repo] [--force]` | Full guided setup (recommended) |
 | `squad-reviews init [target-repo]` | Install files only (advanced) |
+| `squad-reviews generate-config [--roles r1,r2] [--force]` | Generate `reviews/config.json` from squad-identity |
 | `squad-reviews status` | Show current config and registered reviewers |
 | `squad-reviews doctor` | Run health checks (config, identity, labels, GitHub setup) |
 | `squad-reviews scaffold-gate [--roles r1,r2] [--dry-run]` | Generate review gate CI workflows |
