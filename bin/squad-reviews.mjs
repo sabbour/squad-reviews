@@ -494,6 +494,12 @@ async function commandSetup(values) {
               log(`  ✓ Exists: ${label}`);
             } else {
               log(`  ⚠ Failed to create ${label} (${response.status})`);
+              if (response.status === 404 || response.status === 403) {
+                log(`    → Token may not have access to ${github.owner}/${github.repo}.`);
+                log(`    → Try: gh auth login --hostname github.com --git-protocol https`);
+                log(`    → Or set GH_TOKEN with a PAT that has repo access.`);
+                break; // Don't repeat the same error for every label
+              }
             }
           } catch (e) {
             log(`  ⚠ Failed to create ${label}: ${e.message}`);
