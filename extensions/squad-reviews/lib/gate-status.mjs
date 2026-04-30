@@ -56,8 +56,13 @@ function anyPathMatches(paths, patterns) {
 
 /**
  * Evaluate whether a role is required given PR context.
+ * @param {object} gateRule - The role's gateRule config
+ * @param {string[]} prLabels - Labels currently on the PR
+ * @param {string[]} changedPaths - Changed file paths
+ * @param {object} [labelAuthority] - Map of label name → actor login who applied it
+ * @param {string[]} [authorizedActors] - Bot logins authorized to apply bypass labels for this role
  */
-function isRoleRequired(gateRule, prLabels, changedPaths) {
+export function isRoleRequired(gateRule, prLabels, changedPaths, labelAuthority, authorizedActors) {
   if (!gateRule || gateRule.required === 'always') return { required: true };
   if (gateRule.required === 'optional') return { required: false, reason: 'optional' };
 
@@ -66,7 +71,23 @@ function isRoleRequired(gateRule, prLabels, changedPaths) {
 
   // Check bypass labels
   const bypassLabels = (gateRule.bypassLabels || []).concat(gateRule.bypassWhen?.labels || []);
-  if (bypassLabels.some(bl => normalizedLabels.includes(bl.toLowerCase()))) {
+  const matchingBypass = bypassLabels.filter(bl => normalizedLabels.includes(bl.toLowerCase()));
+
+  if (matchingBypass.length > 0) {
+    // If authority enforcement is enabled, verify who applied the label
+    if (authorizedActors && authorizedActors.length > 0 && labelAuthority) {
+      const authorizedLower = authorizedActors.map(a => a.toLowerCase());
+      const authorizedMatch = matchingBypass.some(bl => {
+        const appliedBy = labelAuthority[bl.toLowerCase()];
+        return appliedBy && authorizedLower.includes(appliedBy.toLowerCase());
+      });
+
+      if (!authorizedMatch) {
+        // Bypass label present but applied by unauthorized actor — ignore it
+        return { required: true, reason: 'bypass label applied by unauthorized actor' };
+      }
+    }
+
     // Check if required paths still trigger it
     const requiredPaths = gateRule.requiredWhen?.paths || [];
     if (requiredPaths.length > 0 && anyPathMatches(changedPaths, requiredPaths)) {
@@ -89,6 +110,32 @@ function isRoleRequired(gateRule, prLabels, changedPaths) {
 }
 
 /**
+ * Fetch label events for an issue/PR to determine who applied each label.
+ * Returns a map of label name (lowercase) → actor login.
+ */
+async function fetchLabelAuthority(owner, repo, issueNumber, token) {
+  const url = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/issues/${issueNumber}/events?per_page=100`;
+  try {
+    const events = await paginatedGet(url, token);
+    const labelMap = {};
+
+    for (const event of events) {
+      if (event.event === 'labeled' && event.label?.name) {
+        // Last actor to apply the label wins (in case of remove + re-apply)
+        labelMap[event.label.name.toLowerCase()] = event.actor?.login || null;
+      } else if (event.event === 'unlabeled' && event.label?.name) {
+        delete labelMap[event.label.name.toLowerCase()];
+      }
+    }
+
+    return labelMap;
+  } catch {
+    // If we can't fetch events, skip authority check gracefully
+    return null;
+  }
+}
+
+/**
  * Check the review gate status for a PR.
  * @param {string} repoRoot
  * @param {string} token
@@ -104,16 +151,29 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
   const configRoles = Object.keys(config.reviewers);
   const effectiveRoles = roles && roles.length > 0 ? roles : configRoles;
 
+  // Check if any role has bypassLabelAuthority — only fetch events if needed
+  const needsAuthorityCheck = effectiveRoles.some(role => {
+    const gateRule = config.reviewers[role]?.gateRule;
+    return gateRule?.bypassLabelAuthority;
+  });
+
   // Fetch reviews, PR labels, and changed files in parallel
   const reviewsUrl = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/pulls/${pr}/reviews?per_page=100`;
   const prUrl = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/pulls/${pr}`;
   const filesUrl = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/pulls/${pr}/files?per_page=100`;
 
-  const [allReviews, prData, changedFiles] = await Promise.all([
+  const fetches = [
     paginatedGet(reviewsUrl, token),
     fetch(prUrl, { headers: buildHeaders(token) }).then(r => r.json()),
     paginatedGet(filesUrl, token),
-  ]);
+  ];
+
+  // Only fetch label events if authority enforcement is needed
+  if (needsAuthorityCheck) {
+    fetches.push(fetchLabelAuthority(owner, repo, pr, token));
+  }
+
+  const [allReviews, prData, changedFiles, labelAuthority] = await Promise.all(fetches);
 
   const prLabels = (prData.labels || []).map(l => l.name);
   const changedPaths = changedFiles.map(f => f.filename);
@@ -127,8 +187,16 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
     const gateRule = reviewer?.gateRule;
     const botLogin = resolveBotLogin(role, repoRoot);
 
+    // Resolve authorized actors for bypass label enforcement
+    let authorizedActors = null;
+    if (gateRule?.bypassLabelAuthority) {
+      const authorityRole = gateRule.bypassLabelAuthority;
+      const authorityLogin = resolveBotLogin(authorityRole, repoRoot);
+      authorizedActors = authorityLogin ? [authorityLogin] : [];
+    }
+
     // Evaluate conditional requirements
-    const requirement = isRoleRequired(gateRule, prLabels, changedPaths);
+    const requirement = isRoleRequired(gateRule, prLabels, changedPaths, labelAuthority || null, authorizedActors);
     if (!requirement.required) {
       skippedRoles.push({ role, reason: requirement.reason });
       roleStatuses.push({

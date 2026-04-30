@@ -219,6 +219,26 @@ Before considering a PR ready to merge:
 3. Never leave threads unresolved — the gate will block the PR.
 4. Never self-approve — an agent must not approve its own PR.
 5. Do not manually apply `{role}:approved` labels — the gate handles this automatically.
+6. **Do not self-apply bypass labels** (e.g., `docs:not-applicable`). Only the role responsible for that review dimension is authorized to determine when a bypass is appropriate. The gate enforces this via `bypassLabelAuthority`.
+
+### Bypass Label Authority
+
+Bypass labels (e.g., `docs:not-applicable`, `skip-security`) can be restricted so only the reviewer role's bot can apply them. This prevents implementers from self-bypassing reviews.
+
+Config example:
+
+```json
+"docs": {
+  "agent": "amy",
+  "gateRule": {
+    "required": "conditional",
+    "bypassLabels": ["docs:not-applicable"],
+    "bypassLabelAuthority": "docs"
+  }
+}
+```
+
+With `bypassLabelAuthority: "docs"`, the gate ignores `docs:not-applicable` unless it was applied by the docs role's bot (e.g., `sqd-docs[bot]`). If any other actor applied it, the label is treated as if it doesn't exist.
 
 ### Scaffolding the gate
 

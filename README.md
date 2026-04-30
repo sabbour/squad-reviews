@@ -229,6 +229,7 @@ Controls whether a reviewer role is required for merge:
 | `bypassWhen.labels` | string[] | Skip this role if PR has any of these labels |
 | `requiredWhen.paths` | string[] | Only require if changed files match these globs |
 | `bypassLabels` | string[] | Shorthand bypass labels (e.g., `["skip-docs"]`) |
+| `bypassLabelAuthority` | string | Role slug whose bot is authorized to apply bypass labels. If set, bypass labels applied by other actors are ignored. |
 
 **Evaluation logic for `conditional` roles:**
 

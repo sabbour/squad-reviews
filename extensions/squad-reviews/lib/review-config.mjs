@@ -50,6 +50,12 @@ function validateGateRule(roleSlug, gateRule) {
   if (gateRule.bypassLabels !== undefined && !Array.isArray(gateRule.bypassLabels)) {
     invalidConfig(`reviewers.${roleSlug}.gateRule.bypassLabels must be an array`);
   }
+
+  if (gateRule.bypassLabelAuthority !== undefined) {
+    if (typeof gateRule.bypassLabelAuthority !== 'string' || gateRule.bypassLabelAuthority.trim() === '') {
+      invalidConfig(`reviewers.${roleSlug}.gateRule.bypassLabelAuthority must be a non-empty string (role slug)`);
+    }
+  }
 }
 
 function validateReviewer(roleSlug, reviewer) {
