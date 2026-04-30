@@ -11,6 +11,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import { acknowledgeFeedback } from './lib/acknowledge-feedback.mjs';
+import { checkGateStatus } from './lib/gate-status.mjs';
 import { executePrReview } from './lib/execute-review.mjs';
 import { executeIssueReview } from './lib/issue-review.mjs';
 import { loadConfig } from './lib/review-config.mjs';
@@ -395,7 +396,7 @@ joinSession(async session => {
       properties: {
         pr: { type: 'number' },
         roleSlug: { type: 'string' },
-        event: { type: 'string', enum: ['COMMENT', 'REQUEST_CHANGES'] },
+        event: { type: 'string', enum: ['COMMENT', 'REQUEST_CHANGES', 'APPROVE'] },
         reviewBody: { type: 'string' },
         owner: { type: 'string' },
         repo: { type: 'string' },
@@ -518,9 +519,34 @@ joinSession(async session => {
           items: { type: 'string' },
           description: 'Reviewer role slugs to require. Defaults to all roles from config.',
         },
+        dryRun: {
+          type: 'boolean',
+          description: 'If true, return generated content without writing files.',
+        },
       },
       required: [],
     },
-    handler: async ({ roles }) => scaffoldGate(REPO_ROOT, { roles }),
+    handler: async ({ roles, dryRun }) => scaffoldGate(REPO_ROOT, { roles, dryRun }),
+  });
+
+  registerJsonTool(session, {
+    name: 'squad_reviews_gate_status',
+    description: 'Check review gate status for a PR. Returns which roles have approved, which are pending, and unresolved thread count.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pr: { type: 'number', description: 'Pull request number' },
+        owner: { type: 'string', description: 'Repository owner' },
+        repo: { type: 'string', description: 'Repository name' },
+        roles: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Roles to check. Defaults to all from config.',
+        },
+      },
+      required: ['pr', 'owner', 'repo'],
+    },
+    handler: async ({ pr, owner, repo, roles }) =>
+      checkGateStatus(REPO_ROOT, requireToken(), { pr, owner, repo, roles }),
   });
 });

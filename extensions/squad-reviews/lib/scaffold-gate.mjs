@@ -9,10 +9,22 @@ import { loadConfig } from './review-config.mjs';
 /**
  * Generate the reusable workflow YAML content.
  * @param {string[]} roles - reviewer role slugs
+ * @param {object} config - loaded config (for botLogin lookups)
  * @returns {string}
  */
-export function generateReusableWorkflow(roles) {
+export function generateReusableWorkflow(roles, config = {}) {
   const rolesDefault = roles.join(',');
+
+  // Build bot-login mapping from config if available
+  const botLoginMap = {};
+  for (const role of roles) {
+    const reviewer = config.reviewers?.[role];
+    if (reviewer?.botLogin) {
+      botLoginMap[role] = reviewer.botLogin;
+    }
+  }
+
+  const botLoginJson = JSON.stringify(botLoginMap);
 
   return `name: Squad Review Gate (Reusable)
 
@@ -46,7 +58,7 @@ jobs:
           node-version: 20
 
       - name: Install squad-reviews
-        run: npm install -g @sabbour/squad-reviews
+        run: npx --yes @sabbour/squad-reviews gate-status --help || true
 
       - name: Check review approvals and unresolved threads
         env:
@@ -60,47 +72,65 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
+            // Bot login mapping from config (injected at scaffold time)
+            const botLoginMap = ${botLoginJson};
+
             core.info(\`Checking review gate for PR #\${prNumber}\`);
             core.info(\`Required roles: \${roles.join(', ')}\`);
 
-            // Fetch all reviews on the PR
-            const { data: reviews } = await github.rest.pulls.listReviews({
-              owner, repo, pull_number: prNumber
-            });
+            // Fetch ALL reviews with pagination
+            const allReviews = await github.paginate(
+              github.rest.pulls.listReviews,
+              { owner, repo, pull_number: prNumber, per_page: 100 }
+            );
 
-            // For each role, check if there's an APPROVED review
-            // Reviews can come from bot accounts named after the role
+            // For each role, find the LATEST review from that role's bot
             const approvedRoles = new Set();
             const missingRoles = [];
 
             for (const role of roles) {
-              // Check for native approval from any reviewer whose login contains the role
-              // or from a bot with the role name
-              const hasApproval = reviews.some(r =>
-                r.state === 'APPROVED' && (
-                  r.user.login.toLowerCase().includes(role.toLowerCase()) ||
-                  r.user.login.toLowerCase() === \`\${role}-bot\` ||
-                  r.user.login.toLowerCase() === \`squad-\${role}\`
-                )
-              );
+              const botLogin = botLoginMap[role] || null;
 
-              if (hasApproval) {
+              // Filter reviews from this role's reviewer
+              const roleReviews = allReviews.filter(r => {
+                const login = (r.user?.login || '').toLowerCase();
+                if (botLogin) return login === botLogin.toLowerCase();
+                return (
+                  login.includes(role.toLowerCase()) ||
+                  login === \`\${role}-bot\` ||
+                  login === \`squad-\${role}\`
+                );
+              });
+
+              // Sort by submitted_at descending — only the latest review counts
+              roleReviews.sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at));
+              const latestReview = roleReviews[0];
+
+              if (latestReview && latestReview.state === 'APPROVED') {
                 approvedRoles.add(role);
               } else {
                 missingRoles.push(role);
+                if (latestReview) {
+                  core.info(\`Role \${role}: latest review is \${latestReview.state} (not APPROVED)\`);
+                }
               }
             }
 
-            // Check for unresolved threads using squad-reviews CLI
+            // Check for unresolved threads
             let unresolvedCount = 0;
             try {
-              const { execSync } = require('child_process');
-              const result = execSync(
-                \`squad-reviews acknowledge-feedback --pr \${prNumber} --owner \${owner} --repo \${repo}\`,
-                { encoding: 'utf8', env: { ...process.env, GITHUB_TOKEN: process.env.GITHUB_TOKEN } }
-              );
-              const feedback = JSON.parse(result);
-              unresolvedCount = feedback.unresolvedThreads?.length || 0;
+              const query = \`query($owner: String!, $repo: String!, $pr: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $pr) {
+                    reviewThreads(first: 100) {
+                      nodes { isResolved }
+                    }
+                  }
+                }
+              }\`;
+              const result = await github.graphql(query, { owner, repo, pr: prNumber });
+              const threads = result?.repository?.pullRequest?.reviewThreads?.nodes || [];
+              unresolvedCount = threads.filter(t => !t.isResolved).length;
             } catch (e) {
               core.warning(\`Could not check unresolved threads: \${e.message}\`);
             }
@@ -173,9 +203,10 @@ jobs:
  * @param {string} repoRoot - path to the repository root
  * @param {object} options
  * @param {string[]} [options.roles] - role slugs to require (defaults to all from config)
+ * @param {boolean} [options.dryRun] - if true, return content without writing files
  * @returns {object} result summary
  */
-export function scaffoldGate(repoRoot, { roles } = {}) {
+export function scaffoldGate(repoRoot, { roles, dryRun = false } = {}) {
   const config = loadConfig(repoRoot);
   const configRoles = Object.keys(config.reviewers);
 
@@ -190,14 +221,26 @@ export function scaffoldGate(repoRoot, { roles } = {}) {
   }
 
   const workflowsDir = join(repoRoot, '.github', 'workflows');
-  mkdirSync(workflowsDir, { recursive: true });
-
   const reusablePath = join(workflowsDir, 'squad-review-gate.yml');
   const callerPath = join(workflowsDir, 'review-gate.yml');
 
-  const reusableContent = generateReusableWorkflow(effectiveRoles);
+  const reusableContent = generateReusableWorkflow(effectiveRoles, config);
   const callerContent = generateCallerWorkflow(effectiveRoles);
 
+  if (dryRun) {
+    return {
+      scaffolded: false,
+      dryRun: true,
+      roles: effectiveRoles,
+      files: [reusablePath, callerPath],
+      content: {
+        [reusablePath]: reusableContent,
+        [callerPath]: callerContent,
+      },
+    };
+  }
+
+  mkdirSync(workflowsDir, { recursive: true });
   writeFileSync(reusablePath, reusableContent, 'utf8');
   writeFileSync(callerPath, callerContent, 'utf8');
 

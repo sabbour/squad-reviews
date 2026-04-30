@@ -3,6 +3,7 @@ import {
   replyToThread as githubReplyToThread,
   resolveThread as githubResolveThread,
 } from './github-api.mjs';
+import { appendAuditEntry } from './audit-log.mjs';
 
 const ADDRESS_REPLY_PATTERN = /^(?<sha>[0-9a-f]{7,40})\s*:\s*(?<description>\S[\s\S]*)$/;
 const DISMISS_REPLY_PATTERN = /^justification\s*:\s*(?<justification>\S[\s\S]*)$/i;
@@ -244,10 +245,21 @@ export async function resolveReviewThread(options, dependencies = {}) {
 export async function resolveThread(repoRoot, token, options) {
   assertNonEmptyString(repoRoot, 'repoRoot');
 
-  return resolveReviewThread({
+  const result = await resolveReviewThread({
     ...options,
     repoRoot,
     token,
     pr: options.pr,
   });
+
+  appendAuditEntry(repoRoot, {
+    action: 'thread_resolved',
+    pr: options.pr,
+    owner: options.owner,
+    repo: options.repo,
+    threadId: options.threadId,
+    resolveAction: options.action,
+  });
+
+  return result;
 }

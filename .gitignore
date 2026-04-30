@@ -8,3 +8,5 @@
 .squad-workstream
 node_modules/
 *.tgz
+reviews/audit.jsonl
+test/fixtures/**/audit.jsonl

@@ -1,25 +1,31 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { access, copyFile, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import { acknowledgeFeedback } from '../extensions/squad-reviews/lib/acknowledge-feedback.mjs';
+import { appendAuditEntry } from '../extensions/squad-reviews/lib/audit-log.mjs';
+import { checkGateStatus } from '../extensions/squad-reviews/lib/gate-status.mjs';
 import { executePrReview } from '../extensions/squad-reviews/lib/execute-review.mjs';
 import { executeIssueReview } from '../extensions/squad-reviews/lib/issue-review.mjs';
-import { loadConfig } from '../extensions/squad-reviews/lib/review-config.mjs';
+import { loadConfig, migrateConfig, LATEST_SCHEMA_VERSION } from '../extensions/squad-reviews/lib/review-config.mjs';
 import { requestIssueReview, requestPrReview } from '../extensions/squad-reviews/lib/request-review.mjs';
 import { resolveThread } from '../extensions/squad-reviews/lib/resolve-thread.mjs';
 import { scaffoldGate } from '../extensions/squad-reviews/lib/scaffold-gate.mjs';
 
 const COMMANDS = {
+  init: 'Install squad-reviews into a repo (one-command setup)',
   status: 'Show config summary',
   doctor: 'Health check',
   setup: 'Copy template to reviews/config.json',
   'scaffold-gate': 'Scaffold review gate CI workflows',
+  'gate-status': 'Check review gate status for a PR',
+  report: 'Show review metrics and status for recent PRs',
+  migrate: 'Migrate config to latest schema version',
   'request-pr-review': 'Request PR review',
   'execute-pr-review': 'Execute PR review',
   'acknowledge-feedback': 'List unresolved review feedback',
@@ -29,12 +35,16 @@ const COMMANDS = {
 };
 
 const COMMAND_USAGE = {
+  init: 'squad-reviews init [target-repo]',
   status: 'squad-reviews status',
   doctor: 'squad-reviews doctor',
   setup: 'squad-reviews setup',
-  'scaffold-gate': 'squad-reviews scaffold-gate [--roles <role1,role2,...>]',
+  'scaffold-gate': 'squad-reviews scaffold-gate [--roles <role1,role2,...>] [--dry-run]',
+  'gate-status': 'squad-reviews gate-status --pr <number> [--roles <role1,role2,...>] [--owner <owner> --repo <repo>]',
+  report: 'squad-reviews report [--owner <owner> --repo <repo>]',
+  migrate: 'squad-reviews migrate',
   'request-pr-review': 'squad-reviews request-pr-review --pr <number> --reviewer <role> [--owner <owner> --repo <repo>]',
-  'execute-pr-review': 'squad-reviews execute-pr-review --pr <number> --role <role> --event <COMMENT|REQUEST_CHANGES> [--body <text>] [--owner <owner> --repo <repo>]',
+  'execute-pr-review': 'squad-reviews execute-pr-review --pr <number> --role <role> --event <COMMENT|REQUEST_CHANGES|APPROVE> [--body <text>] [--owner <owner> --repo <repo>]',
   'acknowledge-feedback': 'squad-reviews acknowledge-feedback --pr <number> [--owner <owner> --repo <repo>]',
   'resolve-thread': 'squad-reviews resolve-thread --pr <number> --thread <id> --comment <id> --reply <text> --action <addressed|dismissed> [--owner <owner> --repo <repo>]',
   'request-issue-review': 'squad-reviews request-issue-review --issue <number> --reviewer <role> [--owner <owner> --repo <repo>]',
@@ -50,7 +60,7 @@ const TOKEN_ENV_VARS = ['SQUAD_REVIEW_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'];
 const CONFIG_RELATIVE_PATH = join('reviews', 'config.json');
 const TEMPLATE_RELATIVE_PATH = join('reviews', 'config.json.template');
 const ACTIONS = new Set(['addressed', 'dismissed']);
-const REVIEW_EVENTS = new Set(['COMMENT', 'REQUEST_CHANGES']);
+const REVIEW_EVENTS = new Set(['COMMENT', 'REQUEST_CHANGES', 'APPROVE']);
 
 function printJson(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -216,6 +226,21 @@ function resolveToken(required = false) {
     }
   }
 
+  // Try auto-resolving via squad-identity if available
+  try {
+    const identityLib = join(findRepoRoot(), '.github', 'extensions', 'squad-identity', 'lib', 'resolve-token.mjs');
+    if (existsSync(identityLib)) {
+      // squad-identity is installed — hint to the user
+      if (required) {
+        throw new Error(
+          `Missing GitHub token; set one of ${TOKEN_ENV_VARS.join(', ')} or use squad_identity_resolve_token tool`
+        );
+      }
+    }
+  } catch (e) {
+    if (required && e.message.includes('Missing GitHub token')) throw e;
+  }
+
   if (required) {
     throw new Error(`Missing GitHub token; set one of ${TOKEN_ENV_VARS.join(', ')}`);
   }
@@ -353,11 +378,44 @@ async function commandSetup() {
   await mkdir(dirname(configPath), { recursive: true });
   await copyFile(templatePath, configPath);
 
+  // Create labels for reviewer roles
+  const labelsCreated = [];
+  try {
+    const { token } = resolveToken(false);
+    if (token) {
+      const config = loadConfig(repoRoot);
+      const github = resolveRepoCoordinates(repoRoot, { required: false });
+      if (github.owner && github.repo) {
+        for (const role of Object.keys(config.reviewers)) {
+          const label = `${role}:approved`;
+          try {
+            const response = await fetch(
+              `https://api.github.com/repos/${github.owner}/${github.repo}/labels`,
+              {
+                method: 'POST',
+                headers: {
+                  Accept: 'application/vnd.github+json',
+                  Authorization: `token ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: label, color: '0e8a16', description: `Approved by ${role} reviewer` }),
+              }
+            );
+            if (response.ok || response.status === 422) {
+              labelsCreated.push(label);
+            }
+          } catch { /* best effort */ }
+        }
+      }
+    }
+  } catch { /* labels are best-effort */ }
+
   return {
     created: true,
     repoRoot,
     templatePath,
     configPath,
+    labelsCreated,
   };
 }
 
@@ -472,11 +530,245 @@ async function commandScaffoldGate(values) {
   const roles = values.roles
     ? values.roles.split(',').map(r => r.trim()).filter(Boolean)
     : [];
+  const dryRun = values['dry-run'] === true;
 
-  return scaffoldGate(repoRoot, { roles });
+  return scaffoldGate(repoRoot, { roles, dryRun });
+}
+
+async function commandGateStatus(values) {
+  const repoRoot = findRepoRoot();
+  const github = resolveRepoCoordinates(repoRoot, {
+    owner: values.owner,
+    repo: values.repo,
+    required: true,
+  });
+  const { token } = resolveToken(true);
+  const roles = values.roles
+    ? values.roles.split(',').map(r => r.trim()).filter(Boolean)
+    : [];
+
+  return checkGateStatus(repoRoot, token, {
+    pr: normalizePositiveInteger(values.pr, 'pr'),
+    owner: github.owner,
+    repo: github.repo,
+    roles,
+  });
+}
+
+async function commandInit(values) {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const packageRoot = resolve(__dirname, '..');
+  const target = values.target ? resolve(values.target) : findRepoRoot();
+
+  // Create reviews directory and copy template
+  const reviewsDir = join(target, 'reviews');
+  const templateSrc = join(packageRoot, 'reviews', 'config.json.template');
+  const templateDest = join(target, 'reviews', 'config.json.template');
+  const configDest = join(target, 'reviews', 'config.json');
+
+  await mkdir(reviewsDir, { recursive: true });
+
+  if (existsSync(templateSrc)) {
+    await copyFile(templateSrc, templateDest);
+  }
+
+  // Copy config from template if it doesn't exist
+  if (!existsSync(configDest) && existsSync(templateDest)) {
+    await copyFile(templateDest, configDest);
+  }
+
+  // Install extension
+  const extSrcDir = join(packageRoot, 'extensions', 'squad-reviews');
+  const extDestDir = join(target, '.github', 'extensions', 'squad-reviews');
+  await mkdir(join(extDestDir, 'lib'), { recursive: true });
+
+  // Copy extension files
+  const { readdirSync, copyFileSync } = await import('node:fs');
+  if (existsSync(extSrcDir)) {
+    const extFiles = readdirSync(extSrcDir).filter(f => f.endsWith('.mjs'));
+    for (const file of extFiles) {
+      copyFileSync(join(extSrcDir, file), join(extDestDir, file));
+    }
+    const libDir = join(extSrcDir, 'lib');
+    if (existsSync(libDir)) {
+      const libFiles = readdirSync(libDir).filter(f => f.endsWith('.mjs'));
+      for (const file of libFiles) {
+        copyFileSync(join(libDir, file), join(extDestDir, 'lib', file));
+      }
+    }
+  }
+
+  // Install SKILL.md
+  const skillSrc = join(packageRoot, 'squad-reviews', 'SKILL.md');
+  const skillDestDir = join(target, '.squad', 'skills', 'squad-reviews');
+  await mkdir(skillDestDir, { recursive: true });
+  if (existsSync(skillSrc)) {
+    copyFileSync(skillSrc, join(skillDestDir, 'SKILL.md'));
+  }
+
+  // Create labels if token and repo are available
+  const labelsCreated = [];
+  try {
+    const { token } = resolveToken(false);
+    if (token && existsSync(configDest)) {
+      const config = loadConfig(target);
+      const github = resolveRepoCoordinates(target, { required: false });
+      if (github.owner && github.repo) {
+        for (const role of Object.keys(config.reviewers)) {
+          const label = `${role}:approved`;
+          try {
+            const response = await fetch(
+              `https://api.github.com/repos/${github.owner}/${github.repo}/labels`,
+              {
+                method: 'POST',
+                headers: {
+                  Accept: 'application/vnd.github+json',
+                  Authorization: `token ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: label, color: '0e8a16', description: `Approved by ${role} reviewer` }),
+              }
+            );
+            if (response.ok || response.status === 422) {
+              labelsCreated.push(label);
+            }
+          } catch { /* best effort */ }
+        }
+      }
+    }
+  } catch { /* labels are best-effort */ }
+
+  // Scaffold gate workflows
+  let gateResult = null;
+  try {
+    if (existsSync(configDest)) {
+      gateResult = scaffoldGate(target, { roles: [] });
+    }
+  } catch { /* gate scaffold is best-effort */ }
+
+  return {
+    initialized: true,
+    target,
+    files: {
+      config: configDest,
+      extension: extDestDir,
+      skill: join(skillDestDir, 'SKILL.md'),
+    },
+    labelsCreated,
+    gateScaffolded: gateResult?.scaffolded || false,
+    nextSteps: [
+      'Edit reviews/config.json to map role slugs to your team agents.',
+      'Commit all generated files.',
+      'Set the Review Gate as a required status check in branch protection.',
+    ],
+  };
+}
+
+async function commandReport(values) {
+  const repoRoot = findRepoRoot();
+  const github = resolveRepoCoordinates(repoRoot, {
+    owner: values.owner,
+    repo: values.repo,
+    required: true,
+  });
+  const { token } = resolveToken(true);
+  const config = loadConfig(repoRoot);
+  const roles = Object.keys(config.reviewers);
+
+  // Fetch open PRs
+  const prsResponse = await fetch(
+    `https://api.github.com/repos/${github.owner}/${github.repo}/pulls?state=open&per_page=20`,
+    { headers: { Accept: 'application/vnd.github+json', Authorization: `token ${token}` } }
+  );
+  if (!prsResponse.ok) {
+    throw new Error(`Failed to fetch PRs: ${prsResponse.status}`);
+  }
+  const prs = await prsResponse.json();
+
+  // For each PR, check gate status
+  const prStatuses = [];
+  for (const pr of prs.slice(0, 10)) {
+    try {
+      const status = await checkGateStatus(repoRoot, token, {
+        pr: pr.number,
+        owner: github.owner,
+        repo: github.repo,
+        roles,
+      });
+      prStatuses.push({
+        number: pr.number,
+        title: pr.title,
+        author: pr.user?.login,
+        passed: status.passed,
+        approvedRoles: status.approvedRoles,
+        pendingRoles: status.pendingRoles,
+        unresolvedThreads: status.unresolvedThreads,
+      });
+    } catch { /* skip PRs with errors */ }
+  }
+
+  // Read audit log for metrics
+  const auditPath = join(repoRoot, 'reviews', 'audit.jsonl');
+  let recentActions = [];
+  if (existsSync(auditPath)) {
+    const lines = readFileSync(auditPath, 'utf8').trim().split('\n').filter(Boolean);
+    recentActions = lines.slice(-50).map(line => {
+      try { return JSON.parse(line); } catch { return null; }
+    }).filter(Boolean);
+  }
+
+  return {
+    owner: github.owner,
+    repo: github.repo,
+    openPrs: prs.length,
+    prStatuses,
+    recentAuditActions: recentActions.length,
+    roles,
+    summary: {
+      totalChecked: prStatuses.length,
+      allPassed: prStatuses.filter(p => p.passed).length,
+      pendingApprovals: prStatuses.filter(p => !p.passed).length,
+    },
+  };
+}
+
+async function commandMigrate() {
+  const repoRoot = findRepoRoot();
+  const configPath = join(repoRoot, CONFIG_RELATIVE_PATH);
+
+  if (!existsSync(configPath)) {
+    throw new Error(`Config not found at ${configPath}. Run 'squad-reviews setup' first.`);
+  }
+
+  const rawConfig = JSON.parse(readFileSync(configPath, 'utf8'));
+  const result = migrateConfig(rawConfig);
+
+  if (!result.migrated) {
+    return {
+      migrated: false,
+      version: result.config.schemaVersion,
+      message: `Config is already at latest version (${result.toVersion}).`,
+    };
+  }
+
+  writeFileSync(configPath, JSON.stringify(result.config, null, 2) + '\n', 'utf8');
+
+  return {
+    migrated: true,
+    fromVersion: result.fromVersion,
+    toVersion: result.toVersion,
+    configPath,
+    message: `Migrated config from ${result.fromVersion} to ${result.toVersion}.`,
+  };
 }
 
 const COMMAND_HANDLERS = {
+  init: {
+    options: {
+      target: { type: 'string' },
+    },
+    handler: commandInit,
+  },
   status: {
     options: {},
     handler: commandStatus,
@@ -492,8 +784,27 @@ const COMMAND_HANDLERS = {
   'scaffold-gate': {
     options: {
       roles: { type: 'string' },
+      'dry-run': { type: 'boolean' },
     },
     handler: commandScaffoldGate,
+  },
+  'gate-status': {
+    options: {
+      pr: { type: 'string' },
+      roles: { type: 'string' },
+      ...SHARED_REPO_OPTIONS,
+    },
+    handler: commandGateStatus,
+  },
+  report: {
+    options: {
+      ...SHARED_REPO_OPTIONS,
+    },
+    handler: commandReport,
+  },
+  migrate: {
+    options: {},
+    handler: commandMigrate,
   },
   'request-pr-review': {
     options: {

@@ -3,12 +3,13 @@ import { join } from 'node:path';
 
 import { fetchPrDiff, postReview } from './github-api.mjs';
 import { loadConfig, resolveReviewer } from './review-config.mjs';
+import { appendAuditEntry } from './audit-log.mjs';
 
-const VALID_REVIEW_EVENTS = new Set(['COMMENT', 'REQUEST_CHANGES']);
+const VALID_REVIEW_EVENTS = new Set(['COMMENT', 'REQUEST_CHANGES', 'APPROVE']);
 
 function validateEvent(event) {
   if (!VALID_REVIEW_EVENTS.has(event)) {
-    throw new Error(`Invalid review event: ${event}. Expected COMMENT or REQUEST_CHANGES`);
+    throw new Error(`Invalid review event: ${event}. Expected COMMENT, REQUEST_CHANGES, or APPROVE`);
   }
 }
 
@@ -37,6 +38,16 @@ export async function executePrReview(repoRoot, token, { pr, roleSlug, event, re
 
   if (reviewBody !== undefined) {
     const reviewId = await postReview(token, owner, repo, pr, reviewBody, event);
+
+    appendAuditEntry(repoRoot, {
+      action: 'review_posted',
+      pr,
+      owner,
+      repo,
+      roleSlug,
+      event,
+      reviewId: String(reviewId),
+    });
 
     return {
       posted: true,

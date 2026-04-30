@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const CONFIG_RELATIVE_PATH = join('reviews', 'config.json');
-const SUPPORTED_SCHEMA_VERSION = '1.0.0';
+const SUPPORTED_SCHEMA_VERSIONS = ['1.0.0', '1.1.0'];
+const LATEST_SCHEMA_VERSION = '1.1.0';
 
 function invalidConfig(reason) {
   throw new Error(`Invalid config: ${reason}`);
@@ -26,6 +27,13 @@ function validateReviewer(roleSlug, reviewer) {
   assertNonEmptyString(reviewer.agent, `reviewers.${roleSlug}.agent`);
   assertNonEmptyString(reviewer.dimension, `reviewers.${roleSlug}.dimension`);
   assertNonEmptyString(reviewer.charterPath, `reviewers.${roleSlug}.charterPath`);
+
+  // botLogin is optional
+  if (reviewer.botLogin !== undefined && reviewer.botLogin !== null) {
+    if (typeof reviewer.botLogin !== 'string' || reviewer.botLogin.trim() === '') {
+      invalidConfig(`reviewers.${roleSlug}.botLogin must be a non-empty string when provided`);
+    }
+  }
 }
 
 function validateThreadResolution(threadResolution) {
@@ -60,8 +68,8 @@ function validateConfig(config) {
     invalidConfig('config must be a JSON object');
   }
 
-  if (config.schemaVersion !== SUPPORTED_SCHEMA_VERSION) {
-    invalidConfig(`schemaVersion must be "${SUPPORTED_SCHEMA_VERSION}"`);
+  if (!SUPPORTED_SCHEMA_VERSIONS.includes(config.schemaVersion)) {
+    invalidConfig(`schemaVersion must be one of: ${SUPPORTED_SCHEMA_VERSIONS.join(', ')}`);
   }
 
   if (!isPlainObject(config.reviewers)) {
@@ -123,8 +131,37 @@ export function resolveReviewer(config, roleSlug) {
     agent: reviewer.agent,
     dimension: reviewer.dimension,
     charterPath: reviewer.charterPath,
+    botLogin: reviewer.botLogin || null,
   };
 }
+
+/**
+ * Migrate config to latest schema version.
+ * @param {object} config
+ * @returns {{ migrated: boolean, config: object, fromVersion: string, toVersion: string }}
+ */
+export function migrateConfig(config) {
+  if (!isPlainObject(config)) {
+    invalidConfig('config must be a JSON object');
+  }
+
+  const fromVersion = config.schemaVersion || '1.0.0';
+  const result = { ...config };
+
+  // 1.0.0 → 1.1.0: adds optional botLogin field to reviewers
+  if (result.schemaVersion === '1.0.0') {
+    result.schemaVersion = '1.1.0';
+  }
+
+  return {
+    migrated: fromVersion !== result.schemaVersion,
+    config: result,
+    fromVersion,
+    toVersion: result.schemaVersion,
+  };
+}
+
+export { LATEST_SCHEMA_VERSION };
 
 export function getThreadTemplates(config) {
   const validatedConfig = validateConfig(config);
