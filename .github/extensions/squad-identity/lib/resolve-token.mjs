@@ -340,7 +340,7 @@ async function resolveTokenWithDiagnostics(projectRoot, roleKey) {
       resolvedRoleKey,
       error: `No private key found for role "${resolvedRoleKey}" (app ID: ${reg.appId}).\n` +
         'Credentials are resolved from: (1) environment variables, (2) OS keychain.\n' +
-        'Run create-app.mjs to create a GitHub App and store the key in your keychain,\n' +
+        `Run squad-identity create-app --role ${resolvedRoleKey} to create a GitHub App and store the key in your keychain,\n` +
         'or use sync-secrets.mjs to set up environment variables for CI/CD.' +
         noKeychainHint,
     };
@@ -355,7 +355,7 @@ async function resolveToken(projectRoot, roleKey) {
   return result.token;
 }
 
-export { clearTokenCache, generateAppJWT, resolveRoleSlug, resolveToken, resolveTokenWithDiagnostics };
+export { clearTokenCache, generateAppJWT, getInstallationToken, resolveRoleSlug, resolveToken, resolveTokenWithDiagnostics };
 
 // ============================================================================
 // CLI entry point
@@ -375,29 +375,30 @@ const isCliInvocation =
   typeof process.argv[1] === 'string' &&
   resolvePath(process.argv[1]) === fileURLToPath(import.meta.url);
 
+function findProjectRoot() {
+  let currentDir = resolvePath(process.cwd());
+
+  while (true) {
+    if (existsSync(join(currentDir, '.squad'))) {
+      return currentDir;
+    }
+
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
+      return process.cwd();
+    }
+
+    currentDir = parentDir;
+  }
+}
+
 if (isCliInvocation) {
   const { roleSlug, required } = parseCliArgs(process.argv);
   if (!roleSlug) {
     process.exit(required ? 1 : 0);
   }
 
-  // Derive project root from script location.
-  // When running from extensions/squad-identity/lib/ → go up 4 levels to repo root.
-  // When running from .squad/scripts/ (legacy) → go up 2 levels to repo root.
-  let projectRoot = process.cwd();
-  try {
-    const scriptDir = dirname(fileURLToPath(import.meta.url));
-    if (scriptDir.includes('.github/extensions')) {
-      // extensions/squad-identity/lib/ → .github/ → repo_root
-      projectRoot = join(scriptDir, '..', '..', '..', '..');
-    } else {
-      // .squad/scripts/ → .squad/ → repo_root (legacy fallback)
-      projectRoot = join(scriptDir, '..', '..');
-    }
-  } catch {
-    // Fallback to cwd if import.meta.url is unavailable
-  }
-
+  const projectRoot = findProjectRoot();
   const result = await resolveTokenWithDiagnostics(projectRoot, roleSlug);
   if (result.token) {
     process.stdout.write(result.token);

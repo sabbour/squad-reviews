@@ -32,3 +32,5 @@ Preferred: auto
 | Commit as | `squad-tester[bot] <{appId}+squad-tester[bot]@users.noreply.github.com>` |
 
 When authoring GitHub writes (commits, PR comments, reviews, issue comments), use the token resolved via `squad-identity` for this role slug. All writes MUST be attributable to the bot identity above.
+
+Relevant skill: '.squad/skills/squad-identity/SKILL.md' — read before any GitHub write.

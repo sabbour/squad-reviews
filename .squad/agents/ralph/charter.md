@@ -29,3 +29,5 @@ Persistent memory agent that maintains context across sessions.
 | Commit as | `n/a` |
 
 Ralph is not part of this project's Git-authoring team mapping. Ralph must not author GitHub writes; use a mapped team role via `squad-identity` instead.
+
+Relevant skill: '.squad/skills/squad-identity/SKILL.md' — read before any GitHub write.

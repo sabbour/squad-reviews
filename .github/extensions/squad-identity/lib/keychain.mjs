@@ -36,11 +36,19 @@ function keychainAvailable() {
       });
       _available = true;
     } else if (process.platform === 'linux') {
-      execFileSync('secret-tool', ['--version'], {
+      const result = spawnSync('secret-tool', [
+        'lookup',
+        'service', '__squad_identity_probe__',
+        'account', '__probe__',
+      ], {
+        encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
         timeout: KEYCHAIN_TIMEOUT_MS,
       });
-      _available = true;
+      _available = !result.error
+        && !result.signal
+        && (result.status === 0 || result.status === 1)
+        && ((result.stderr || '').trim() === '');
     } else {
       _available = false;
     }

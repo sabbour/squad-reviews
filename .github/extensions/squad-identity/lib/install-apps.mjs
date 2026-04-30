@@ -2,7 +2,7 @@
 
 import { execFile, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, extname, join } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 
@@ -32,8 +32,8 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const values = { check: false, role: null };
-  const valueFlags = new Set(["--role"]);
+  const values = { check: false, roles: [] };
+  const valueFlags = new Set(["--role", "--roles"]);
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -62,8 +62,12 @@ function parseArgs(argv) {
       fail(`Missing value for ${flag}.`);
     }
 
-    if (flag === "--role") {
-      values.role = nextValue;
+    if (flag === "--role" || flag === "--roles") {
+      // Support comma-separated: --roles lead,backend,tester
+      for (const r of nextValue.split(',')) {
+        const trimmed = r.trim();
+        if (trimmed) values.roles.push(trimmed);
+      }
     }
 
     if (inlineValue === undefined) {
@@ -75,10 +79,20 @@ function parseArgs(argv) {
 }
 
 function getProjectRoot() {
-  const scriptDir = dirname(fileURLToPath(import.meta.url));
-  // From extensions/squad-identity/lib/ → go up 4 levels to repo root
-  // lib/ → squad-identity/ → extensions/ → .github/ → repo_root
-  return join(scriptDir, "..", "..", "..", "..");
+  let currentDir = resolve(process.cwd());
+
+  while (true) {
+    if (existsSync(join(currentDir, ".squad"))) {
+      return currentDir;
+    }
+
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
+      fail('Could not find repository root containing ".squad". Run this from the repo.');
+    }
+
+    currentDir = parentDir;
+  }
 }
 
 function loadIdentityConfig(projectRoot) {
@@ -257,9 +271,27 @@ function getOriginRepo(projectRoot) {
   return parseGitHubRemote(result.stdout ?? "");
 }
 
-function getConfiguredApps(registrations, usedIdentitySlugs, selectedRole) {
+function getConfiguredApps(registrations, usedIdentitySlugs, selectedRoles) {
   if (!registrations.size) {
     fail("No app registrations found in .squad/identity/apps/.");
+  }
+
+  // When specific roles are requested, bypass team roster matching — the caller
+  // (e.g., setup) already decided these roles are needed.
+  if (selectedRoles && selectedRoles.length > 0) {
+    const apps = [];
+    for (const role of selectedRoles) {
+      const reg = registrations.get(role);
+      if (!reg) {
+        fail(`Role "${role}" has no registration in .squad/identity/apps/${role}.json.`);
+      }
+      const appSlug = reg.slug ?? reg.appSlug ?? null;
+      if (!appSlug) {
+        fail(`No slug found for role "${role}" in .squad/identity/apps/${role}.json.`);
+      }
+      apps.push({ role, appSlug });
+    }
+    return apps;
   }
 
   if (!usedIdentitySlugs.size) {
@@ -273,23 +305,17 @@ function getConfiguredApps(registrations, usedIdentitySlugs, selectedRole) {
       appSlug: reg.slug ?? reg.appSlug ?? null,
     }));
 
-  const filteredApps = selectedRole ? teamApps.filter(app => app.role === selectedRole) : teamApps;
-
-  if (!filteredApps.length) {
-    fail(
-      selectedRole
-        ? `Role "${selectedRole}" is not both registered in .squad/identity/apps/ and used by the current team.`
-        : "No registered apps are used by the current team.",
-    );
+  if (!teamApps.length) {
+    fail("No registered apps are used by the current team.");
   }
 
-  for (const app of filteredApps) {
+  for (const app of teamApps) {
     if (!app.appSlug) {
       fail(`No slug found for role "${app.role}" in .squad/identity/apps/${app.role}.json.`);
     }
   }
 
-  return filteredApps;
+  return teamApps;
 }
 
 function canResolveInstallationToken(projectRoot, role) {
@@ -387,7 +413,7 @@ async function main() {
 
   const origin = getOriginRepo(projectRoot);
   const usedIdentitySlugs = getUsedIdentitySlugs(projectRoot, registrations);
-  const apps = getConfiguredApps(registrations, usedIdentitySlugs, args.role);
+  const apps = getConfiguredApps(registrations, usedIdentitySlugs, args.roles);
 
   const missingApps = [];
   const rows = apps.map(app => {
@@ -425,41 +451,60 @@ async function main() {
   // Try to capture installation IDs for missing apps
   console.log("\n🔍 Checking installation status...\n");
   for (const app of missingApps) {
-    const installed = canResolveInstallationToken(projectRoot, app.role);
-    if (installed) {
-      console.log(`✅ ${app.role} (${app.appSlug}) — installed and token resolves`);
-      // Try to capture the installation ID via the GitHub API
-      await captureInstallationId(projectRoot, app, origin);
-    } else {
-      console.log(`❌ ${app.role} (${app.appSlug}) — not yet installed or token resolution failed`);
-    }
+    await verifyInstallation(projectRoot, app, origin);
+    console.log("");
   }
 }
 
-async function captureInstallationId(projectRoot, app, origin) {
-  // Use app's JWT to find the installation for this repo
+function getAppRegistrationPath(projectRoot, role) {
+  return join(projectRoot, ".squad", "identity", "apps", `${role}.json`);
+}
+
+function loadAppRegistration(projectRoot, role) {
+  const appPath = getAppRegistrationPath(projectRoot, role);
+  if (!existsSync(appPath)) {
+    return { appPath, appData: null };
+  }
+
   try {
-    const keychainPath = join(dirname(fileURLToPath(import.meta.url)), "keychain.mjs");
-    const resolveTokenPath = join(dirname(fileURLToPath(import.meta.url)), "resolve-token.mjs");
+    return { appPath, appData: JSON.parse(readFileSync(appPath, "utf8")) };
+  } catch {
+    return { appPath, appData: null };
+  }
+}
 
-    // Dynamically import to get JWT generation
-    const { keychainLoad } = await import(keychainPath);
+function getEnvPrivateKey(role) {
+  const envKey = role.toUpperCase();
+  const pemRaw = process.env[`SQUAD_${envKey}_PRIVATE_KEY`];
+  if (!pemRaw) return null;
 
-    const appPath = join(projectRoot, ".squad", "identity", "apps", `${app.role}.json`);
-    if (!existsSync(appPath)) return;
+  return pemRaw.trimStart().startsWith("-----BEGIN")
+    ? pemRaw
+    : Buffer.from(pemRaw, "base64").toString("utf8");
+}
 
-    const appData = JSON.parse(readFileSync(appPath, "utf8"));
-    const appId = appData.appId;
-    if (!appId) return;
+async function loadVerificationModules() {
+  const keychainPath = join(dirname(fileURLToPath(import.meta.url)), "keychain.mjs");
+  const resolveTokenPath = join(dirname(fileURLToPath(import.meta.url)), "resolve-token.mjs");
 
-    const pem = keychainLoad(String(appId));
-    if (!pem) return;
+  const keychainModule = await import(keychainPath).catch(() => null);
+  const resolveTokenModule = await import(resolveTokenPath);
 
-    // Generate JWT (import the function from resolve-token)
-    const { generateAppJWT } = await import(resolveTokenPath);
-    const jwt = generateAppJWT(appId, pem);
+  return {
+    keychainLoad: keychainModule?.keychainLoad ?? null,
+    generateAppJWT: resolveTokenModule.generateAppJWT,
+    getInstallationToken: resolveTokenModule.getInstallationToken,
+  };
+}
 
-    // Query installations for this app
+async function discoverInstallationId(projectRoot, app, origin, privateKeyPem, helpers) {
+  const { appPath, appData } = loadAppRegistration(projectRoot, app.role);
+  if (!appData?.appId || !privateKeyPem) {
+    return { installationId: null, saved: false, appPath, error: null };
+  }
+
+  try {
+    const jwt = helpers.generateAppJWT(appData.appId, privateKeyPem);
     const response = await fetch("https://api.github.com/app/installations", {
       headers: {
         Authorization: `Bearer ${jwt}`,
@@ -468,21 +513,123 @@ async function captureInstallationId(projectRoot, app, origin) {
       },
     });
 
-    if (!response.ok) return;
+    if (!response.ok) {
+      return {
+        installationId: null,
+        saved: false,
+        appPath,
+        error: `GitHub API error ${response.status} listing app installations.`,
+      };
+    }
 
     const installations = await response.json();
-    // Find installation for our repo's owner
     const match = installations.find(inst =>
       inst.account?.login?.toLowerCase() === origin.owner.toLowerCase()
     );
 
-    if (match && match.id) {
-      appData.installationId = match.id;
-      writeFileSync(appPath, `${JSON.stringify(appData, null, 2)}\n`, "utf8");
-      console.log(`   → Saved installationId=${match.id} to ${app.role}.json`);
+    if (!match?.id) {
+      return { installationId: null, saved: false, appPath, error: null };
     }
-  } catch {
-    // Best effort — user can manually set installationId later
+
+    const installationId = match.id;
+    let saved = false;
+    if (appData.installationId !== installationId) {
+      appData.installationId = installationId;
+      writeFileSync(appPath, `${JSON.stringify(appData, null, 2)}\n`, "utf8");
+      saved = true;
+    }
+
+    return { installationId, saved, appPath, error: null };
+  } catch (error) {
+    return {
+      installationId: null,
+      saved: false,
+      appPath,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function captureInstallationId(projectRoot, app, origin) {
+  const helpers = await loadVerificationModules();
+  const { appData } = loadAppRegistration(projectRoot, app.role);
+  if (!appData?.appId) return;
+
+  const pem = getEnvPrivateKey(app.role)
+    ?? (helpers.keychainLoad ? helpers.keychainLoad(String(appData.appId)) : null);
+  if (!pem) return;
+
+  const result = await discoverInstallationId(projectRoot, app, origin, pem, helpers);
+  if (result.saved && result.installationId) {
+    console.log(`  → Saved installationId=${result.installationId} to ${app.role}.json`);
+  }
+}
+
+async function verifyInstallation(projectRoot, app, origin) {
+  console.log(`🔍 Verifying ${app.role} (${app.appSlug})...`);
+
+  const { appData } = loadAppRegistration(projectRoot, app.role);
+  if (!appData) {
+    console.log(`  ❌ App registration not found at .squad/identity/apps/${app.role}.json`);
+    console.log(`  💡 Install at: ${app.installUrl}`);
+    return;
+  }
+
+  if (!appData.appId) {
+    console.log("  ❌ App registration missing appId");
+    return;
+  }
+
+  console.log(`  ✅ App registration found (appId: ${appData.appId})`);
+
+  const helpers = await loadVerificationModules();
+  const envPem = getEnvPrivateKey(app.role);
+  const keychainPem = envPem || !helpers.keychainLoad ? null : helpers.keychainLoad(String(appData.appId));
+  const privateKeyPem = envPem ?? keychainPem;
+
+  if (envPem) {
+    console.log("  ✅ Private key found in environment");
+  } else if (keychainPem) {
+    console.log("  ✅ Private key found in keychain");
+  } else {
+    console.log(
+      helpers.keychainLoad
+        ? "  ❌ No private key found in keychain or environment"
+        : "  ❌ No private key found in environment, and keychain support is unavailable"
+    );
+    return;
+  }
+
+  let installationId = appData.installationId ?? null;
+  let savedInstallationId = false;
+
+  if (installationId) {
+    console.log(`  ✅ Installation ID present (${installationId})`);
+  } else {
+    const discovery = await discoverInstallationId(projectRoot, app, origin, privateKeyPem, helpers);
+    installationId = discovery.installationId;
+    savedInstallationId = discovery.saved;
+
+    if (installationId) {
+      console.log(`  ✅ Installation ID discovered (${installationId})`);
+      if (savedInstallationId) {
+        console.log(`  → Saved installationId=${installationId} to ${app.role}.json`);
+      }
+    } else {
+      const suffix = discovery.error ? ` (${discovery.error})` : "";
+      console.log(`  ❌ No installation ID — app may not be installed on this repo${suffix}`);
+      console.log(`  💡 Install at: ${app.installUrl}`);
+      return;
+    }
+  }
+
+  try {
+    const jwt = helpers.generateAppJWT(appData.appId, privateKeyPem);
+    await helpers.getInstallationToken(jwt, installationId);
+    console.log("  ✅ Token resolved successfully");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(`  ❌ Token resolution failed: ${message}`);
   }
 }
 
