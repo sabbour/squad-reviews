@@ -52,6 +52,7 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
+  statuses: write
 
 jobs:
   review-gate:
@@ -76,6 +77,18 @@ jobs:
             const botLoginMap = ${botLoginJson};
             const gateRules = ${gateRulesJson};
 
+            // Helper: post commit status for the required check name
+            async function postStatus(state, description) {
+              const { data: prData } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+              await github.rest.repos.createCommitStatus({
+                owner, repo,
+                sha: prData.head.sha,
+                state,
+                description: \`Squad review gate: \${description}\`.slice(0, 140),
+                context: 'squad/review-gate'
+              });
+            }
+
             core.info(\`Checking review gate for PR #\${prNumber}\`);
 
             // Fast-lane: squad:chore-auto bypasses the entire gate
@@ -84,6 +97,7 @@ jobs:
               const labels = prData.labels.map(l => l.name.toLowerCase());
               if (labels.includes('squad:chore-auto')) {
                 core.info('⏭️ squad:chore-auto label detected — bypassing review gate');
+                await postStatus('success', 'bypassed — squad:chore-auto');
                 await core.summary.addRaw('## 🔒 Review Gate Summary\\n\\n⏭️ Bypassed — \`squad:chore-auto\` label present.\\n').write();
                 return;
               }
@@ -266,10 +280,13 @@ jobs:
 
             // Gate decision
             if (missingRoles.length > 0) {
+              await postStatus('pending', \`waiting: \${missingRoles.join(', ')}\`);
               core.setFailed(\`Missing approvals from: \${missingRoles.join(', ')}\`);
             } else if (unresolvedCount > 0) {
+              await postStatus('pending', \`\${unresolvedCount} unresolved thread(s)\`);
               core.setFailed(\`\${unresolvedCount} unresolved review thread(s) must be addressed before merge\`);
             } else {
+              await postStatus('success', 'all roles approved, no unresolved threads');
               core.info('✅ Review gate passed — all roles approved, no unresolved threads');
             }
 `;
@@ -289,7 +306,7 @@ on:
   issue_comment:
     types: [created]
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [labeled, unlabeled, opened, synchronize, reopened]
 
 jobs:
   gate:
