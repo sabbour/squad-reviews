@@ -16,6 +16,7 @@ import { executeIssueReview } from './lib/issue-review.mjs';
 import { loadConfig } from './lib/review-config.mjs';
 import { requestIssueReview, requestPrReview } from './lib/request-review.mjs';
 import { resolveThread } from './lib/resolve-thread.mjs';
+import { scaffoldGate } from './lib/scaffold-gate.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -504,5 +505,22 @@ joinSession(async session => {
     description: 'Create reviews/config.json from the template if it does not already exist.',
     inputSchema: { type: 'object', properties: {}, required: [] },
     handler: async () => setupConfig(),
+  });
+
+  registerJsonTool(session, {
+    name: 'squad_reviews_scaffold_gate',
+    description: 'Scaffold review gate CI workflows (reusable + caller) for the configured reviewer roles.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        roles: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Reviewer role slugs to require. Defaults to all roles from config.',
+        },
+      },
+      required: [],
+    },
+    handler: async ({ roles }) => scaffoldGate(REPO_ROOT, { roles }),
   });
 });

@@ -94,3 +94,35 @@ Avoid these failures:
 2. Reviewer reads artifact, applies charter, and executes review.
 3. Implementer acknowledges unresolved feedback.
 4. Each thread is answered and resolved as either `addressed` or `dismissed`.
+
+## 8) Review Gate
+
+A CI review gate blocks PR merges until all required reviewer roles have approved and all review threads are resolved.
+
+### How the gate works
+
+- The gate runs as a GitHub Actions workflow triggered on review submissions and PR events.
+- For each configured role, it checks for a native GitHub review with state `APPROVED`.
+- It checks that zero unresolved review threads remain on the PR.
+- As a legacy side-effect, it auto-applies `{role}:approved` labels when a role has approved.
+
+### Agent responsibilities
+
+Before considering a PR ready to merge:
+
+1. Call `squad_reviews_acknowledge_feedback` to list all unresolved threads.
+2. For **every** unresolved thread, choose one path:
+   - **Addressed** — fix the code, commit, then call `squad_reviews_resolve_thread` with action `addressed` and the fix commit SHA.
+   - **Dismissed** — keep the code as-is, then call `squad_reviews_resolve_thread` with action `dismissed` and a justification.
+3. Never leave threads unresolved — the gate will block the PR.
+4. Never self-approve — an agent must not approve its own PR.
+5. Do not manually apply `{role}:approved` labels — the gate handles this automatically.
+
+### Scaffolding the gate
+
+Use `squad_reviews_scaffold_gate` (or `squad-reviews scaffold-gate --roles <roles>`) to generate the workflow files. The command produces:
+
+- `.github/workflows/squad-review-gate.yml` — reusable workflow
+- `.github/workflows/review-gate.yml` — caller workflow
+
+After scaffolding, set the Review Gate as a required status check in branch protection.

@@ -13,11 +13,13 @@ import { executeIssueReview } from '../extensions/squad-reviews/lib/issue-review
 import { loadConfig } from '../extensions/squad-reviews/lib/review-config.mjs';
 import { requestIssueReview, requestPrReview } from '../extensions/squad-reviews/lib/request-review.mjs';
 import { resolveThread } from '../extensions/squad-reviews/lib/resolve-thread.mjs';
+import { scaffoldGate } from '../extensions/squad-reviews/lib/scaffold-gate.mjs';
 
 const COMMANDS = {
   status: 'Show config summary',
   doctor: 'Health check',
   setup: 'Copy template to reviews/config.json',
+  'scaffold-gate': 'Scaffold review gate CI workflows',
   'request-pr-review': 'Request PR review',
   'execute-pr-review': 'Execute PR review',
   'acknowledge-feedback': 'List unresolved review feedback',
@@ -30,6 +32,7 @@ const COMMAND_USAGE = {
   status: 'squad-reviews status',
   doctor: 'squad-reviews doctor',
   setup: 'squad-reviews setup',
+  'scaffold-gate': 'squad-reviews scaffold-gate [--roles <role1,role2,...>]',
   'request-pr-review': 'squad-reviews request-pr-review --pr <number> --reviewer <role> [--owner <owner> --repo <repo>]',
   'execute-pr-review': 'squad-reviews execute-pr-review --pr <number> --role <role> --event <COMMENT|REQUEST_CHANGES> [--body <text>] [--owner <owner> --repo <repo>]',
   'acknowledge-feedback': 'squad-reviews acknowledge-feedback --pr <number> [--owner <owner> --repo <repo>]',
@@ -464,6 +467,15 @@ async function commandExecuteIssueReview(values) {
   });
 }
 
+async function commandScaffoldGate(values) {
+  const repoRoot = findRepoRoot();
+  const roles = values.roles
+    ? values.roles.split(',').map(r => r.trim()).filter(Boolean)
+    : [];
+
+  return scaffoldGate(repoRoot, { roles });
+}
+
 const COMMAND_HANDLERS = {
   status: {
     options: {},
@@ -476,6 +488,12 @@ const COMMAND_HANDLERS = {
   setup: {
     options: {},
     handler: commandSetup,
+  },
+  'scaffold-gate': {
+    options: {
+      roles: { type: 'string' },
+    },
+    handler: commandScaffoldGate,
   },
   'request-pr-review': {
     options: {

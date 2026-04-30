@@ -1,7 +1,7 @@
 # @sabbour/squad-reviews
 
 [![npm version](https://img.shields.io/npm/v/%40sabbour%2Fsquad-reviews)](https://www.npmjs.com/package/@sabbour/squad-reviews)
-[![CI](https://github.com/sabbour/squad-reviews/actions/workflows/ci.yml/badge.svg)](https://github.com/sabbour/squad-reviews/actions/workflows/ci.yml)
+[![CI](https://github.com/sabbour/squad-reviews/actions/workflows/squad-ci.yml/badge.svg)](https://github.com/sabbour/squad-reviews/actions/workflows/squad-ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 > Config-driven review governance for [Squad](https://github.com/bradygaster/squad) agents — PRs, issues, review threads, and reviewer routing.
@@ -106,6 +106,7 @@ For PRs, the flow uses native GitHub review events (`COMMENT` or `REQUEST_CHANGE
 | `squad_reviews_status` | Show the current review config and registered reviewers. |
 | `squad_reviews_doctor` | Run health checks for config, identity, labels, and GitHub setup. |
 | `squad_reviews_setup` | Create `reviews/config.json` from the template. |
+| `squad_reviews_scaffold_gate` | Scaffold review gate CI workflows (reusable + caller). |
 
 ## CLI commands
 
@@ -119,6 +120,7 @@ squad-reviews acknowledge-feedback --pr <number> [--owner <owner> --repo <repo>]
 squad-reviews resolve-thread --pr <number> --thread <id> --comment <id> --reply <text> --action <addressed|dismissed> [--owner <owner> --repo <repo>]
 squad-reviews request-issue-review --issue <number> --reviewer <role> [--owner <owner> --repo <repo>]
 squad-reviews execute-issue-review --issue <number> --role <role> [--approved] [--body <text>] [--owner <owner> --repo <repo>]
+squad-reviews scaffold-gate [--roles <role1,role2,...>]
 ```
 
 Examples:
@@ -137,6 +139,37 @@ Run command-specific help with:
 ```bash
 squad-reviews <command> --help
 ```
+
+---
+
+## Review Gate
+
+The review gate is a CI workflow that blocks PR merges until all required reviewer roles have approved and all review threads are resolved.
+
+### Scaffold the gate
+
+```bash
+npx squad-reviews scaffold-gate --roles codereview,security
+```
+
+This generates two files:
+
+- `.github/workflows/squad-review-gate.yml` — reusable workflow (the gate logic)
+- `.github/workflows/review-gate.yml` — caller workflow (triggers on PR events)
+
+### What the gate checks
+
+1. For each required role, a native GitHub review with state `APPROVED` must exist.
+2. Zero unresolved review conversation threads remain on the PR.
+3. As a legacy side-effect, `{role}:approved` labels are auto-applied for approved roles.
+
+### Setup
+
+After scaffolding:
+
+1. Commit the generated workflow files.
+2. In branch protection settings, add **Review Gate** as a required status check.
+3. Ensure reviewer bots have write access to submit reviews on the repository.
 
 ---
 
