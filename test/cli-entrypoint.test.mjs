@@ -45,6 +45,7 @@ test('prints global help with --help', () => {
   assert.match(result.stdout, /Usage: squad-reviews <command> \[options\]/);
   assert.match(result.stdout, /request-pr-review/);
   assert.match(result.stdout, /execute-issue-review/);
+  assert.match(result.stdout, /upgrade/);
 });
 
 test('status reports config, token, and GitHub remote defaults', async (t) => {

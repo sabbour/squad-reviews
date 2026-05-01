@@ -23,6 +23,7 @@ const COMMANDS = {
   'generate-config': 'Generate .squad/reviews/config.json from squad-identity',
   status: 'Show config summary',
   doctor: 'Run health checks',
+  upgrade: 'Upgrade this CLI to the latest version',
   'scaffold-gate': 'Scaffold review gate CI workflows',
   'gate-status': 'Check review gate status for a PR',
   report: 'Show review metrics and status for recent PRs',
@@ -40,6 +41,7 @@ const COMMAND_USAGE = {
   'generate-config': 'squad-reviews generate-config [--roles <role1,role2,...>] [--force] [--json]',
   status: 'squad-reviews status [--json]',
   doctor: 'squad-reviews doctor [--json]',
+  upgrade: 'squad-reviews upgrade',
   'scaffold-gate': 'squad-reviews scaffold-gate [--roles <role1,role2,...>] [--dry-run] [--json]',
   'gate-status': 'squad-reviews gate-status --pr <number> [--roles <role1,role2,...>] [--owner <owner> --repo <repo>]',
   report: 'squad-reviews report [--owner <owner> --repo <repo>]',
@@ -61,6 +63,8 @@ const CONFIG_RELATIVE_PATH = join('.squad', 'reviews', 'config.json');
 const TEMPLATE_RELATIVE_PATH = join('.squad', 'reviews', 'config.json.template');
 const ACTIONS = new Set(['addressed', 'dismissed']);
 const REVIEW_EVENTS = new Set(['COMMENT', 'REQUEST_CHANGES', 'APPROVE']);
+const NPM_COMMAND = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const NPX_CACHE_PATTERN = /(^|[\\/])_npx([\\/]|$)/;
 
 function printJson(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -351,6 +355,31 @@ async function commandStatus() {
       source: token.source,
     },
   };
+}
+
+function detectInstallMode(packageRootPath) {
+  const hints = [packageRootPath, process.argv[1] ?? '', process.env.npm_execpath ?? ''];
+  if (hints.some((hint) => NPX_CACHE_PATTERN.test(hint)) || process.env.npm_command === 'exec') {
+    return 'npx';
+  }
+
+  return 'global';
+}
+
+function getLatestPackageVersion(packageName) {
+  return execFileSync(NPM_COMMAND, ['view', packageName, 'version'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
+}
+
+function getGlobalInstalledPackageVersion(packageName) {
+  const globalRoot = execFileSync(NPM_COMMAND, ['root', '-g'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
+  const packageJsonPath = join(globalRoot, ...packageName.split('/'), 'package.json');
+  return JSON.parse(readFileSync(packageJsonPath, 'utf8')).version;
 }
 
 async function commandDoctor() {
@@ -668,6 +697,33 @@ async function commandExecuteIssueReview(values) {
   });
 }
 
+async function commandUpgrade() {
+  const packageName = '@sabbour/squad-reviews';
+  const packageJsonUrl = new URL('../package.json', import.meta.url);
+  const packageRootPath = fileURLToPath(new URL('..', import.meta.url));
+  const currentVersion = JSON.parse(readFileSync(packageJsonUrl, 'utf8')).version;
+  const installMode = detectInstallMode(packageRootPath);
+
+  log(`Current version: ${currentVersion}`);
+
+  if (installMode === 'npx') {
+    const latestVersion = getLatestPackageVersion(packageName);
+    log(`Running via npx. Re-run with: npx ${packageName}@latest upgrade`);
+    log(`Latest version: ${latestVersion}`);
+    return;
+  }
+
+  log(`Upgrading ${packageName}...`);
+
+  try {
+    execFileSync(NPM_COMMAND, ['install', '-g', `${packageName}@latest`], { stdio: 'inherit' });
+    const newVersion = getGlobalInstalledPackageVersion(packageName);
+    log(`✅ Upgraded to ${newVersion}`);
+  } catch {
+    throw new Error(`Upgrade failed. Try manually: npm install -g ${packageName}@latest`);
+  }
+}
+
 async function commandScaffoldGate(values) {
   const repoRoot = findRepoRoot();
   const roles = values.roles
@@ -920,6 +976,10 @@ const COMMAND_HANDLERS = {
   doctor: {
     options: {},
     handler: commandDoctor,
+  },
+  upgrade: {
+    options: {},
+    handler: commandUpgrade,
   },
   'scaffold-gate': {
     options: {
