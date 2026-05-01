@@ -204,6 +204,49 @@ export async function fetchPrThreads(token, owner, repo, prNumber) {
     });
 }
 
+
+export async function fetchPrClosureStatus(token, owner, repo, prNumber) {
+  const query = `
+    query($owner: String!, $repo: String!, $prNumber: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $prNumber) {
+          reviewDecision
+          reviews(last: 100) {
+            nodes {
+              state
+              author { login }
+            }
+          }
+          reviewThreads(first: 100) {
+            nodes {
+              isResolved
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await graphqlRequest(token, query, {
+    owner,
+    repo,
+    prNumber: Number(prNumber),
+  });
+  const pullRequest = data?.repository?.pullRequest;
+  const threads = pullRequest?.reviewThreads?.nodes ?? [];
+  const changeRequestReviewers = (pullRequest?.reviews?.nodes ?? [])
+    .filter((review) => review?.state === 'CHANGES_REQUESTED')
+    .map((review) => review?.author?.login)
+    .filter((login) => typeof login === 'string' && login.trim() !== '');
+
+  return {
+    reviewDecision: pullRequest?.reviewDecision ?? null,
+    totalThreads: threads.length,
+    unresolvedThreads: threads.filter((thread) => thread?.isResolved === false).length,
+    changeRequestReviewers: [...new Set(changeRequestReviewers)],
+  };
+}
+
 export async function postReview(token, owner, repo, prNumber, payload) {
   const url = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`;
   // payload may be { body, event } or { body, event, comments }

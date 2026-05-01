@@ -8,6 +8,7 @@ const repoRoot = new URL('./fixtures/issue-review/', import.meta.url).pathname;
 
 afterEach(() => {
   resetMocks();
+
 });
 
 describe('resolve-thread.mjs', () => {
@@ -41,12 +42,11 @@ describe('resolve-thread.mjs', () => {
       repo: 'rocket',
     });
 
-    assert.deepEqual(result, {
-      resolved: true,
-      replyId: '1001',
-      action: 'addressed',
-    });
-    assert.equal(spy.calls.length, 2);
+    assert.equal(result.resolved, true);
+    assert.equal(result.replyId, '1001');
+    assert.equal(result.action, 'addressed');
+    assert.equal(result.closureRule.reviewDecision, null);
+    assert.equal(spy.calls.length, 3);
     assert.match(spy.calls[0].init.body, /Addressed in abc1234: Renamed the variable and added coverage\./);
   });
 
@@ -125,7 +125,7 @@ describe('resolve-thread.mjs', () => {
     });
 
     assert.equal(result.resolved, true);
-    assert.equal(spy.calls.filter((call) => /graphql/.test(call.url)).length, 2);
+    assert.equal(spy.calls.filter((call) => /graphql/.test(call.url)).length, 3);
     assert.equal(spy.calls.filter((call) => /\/replies$/.test(call.url)).length, 1);
   });
 
@@ -200,4 +200,70 @@ describe('resolve-thread.mjs', () => {
       'Dismissed: The warning is outside this change scope.',
     );
   });
+
+  it('returns two-step closure instructions when reviewDecision is still CHANGES_REQUESTED after all threads resolve', async () => {
+    mockFetch([
+      {
+        match: /\/replies$/,
+        status: 201,
+        json: { id: 1001 },
+      },
+      {
+        match: ({ url, init }) => /https:\/\/api\.github\.com\/graphql/.test(url)
+          && JSON.parse(init.body).query.includes('resolveReviewThread'),
+        status: 200,
+        json: {
+          data: {
+            resolveReviewThread: {
+              thread: { isResolved: true },
+            },
+          },
+        },
+      },
+      {
+        match: ({ url, init }) => /https:\/\/api\.github\.com\/graphql/.test(url)
+          && JSON.parse(init.body).query.includes('reviewDecision'),
+        status: 200,
+        json: {
+          data: {
+            repository: {
+              pullRequest: {
+                reviewDecision: 'CHANGES_REQUESTED',
+                reviews: {
+                  nodes: [
+                    { state: 'CHANGES_REQUESTED', author: { login: 'octocat' } },
+                    { state: 'CHANGES_REQUESTED', author: { login: 'squad-codereview[bot]' } },
+                  ],
+                },
+                reviewThreads: {
+                  nodes: [
+                    { isResolved: true },
+                    { isResolved: true },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    ]);
+
+    const result = await resolveThread(repoRoot, 'ghs_test_token', {
+      pr: 42,
+      threadId: 'PRRT_123',
+      commentId: 101,
+      reply: { sha: 'abc1234', description: 'Fixed the failing path.' },
+      action: 'addressed',
+      owner: 'acme',
+      repo: 'rocket',
+    });
+
+    assert.equal(result.closureRule.allThreadsResolved, true);
+    assert.equal(result.closureRule.reviewDecision, 'CHANGES_REQUESTED');
+    assert.equal(result.closureRule.humanReReviewRequired, true);
+    assert.deepEqual(result.closureRule.humanReviewersNeedingReReview, ['octocat']);
+    assert.equal(result.closureRule.roleGateApprovalRequired, true);
+    assert.match(result.closureRule.instruction, /squad_reviews_execute_pr_review/);
+  });
+
 });

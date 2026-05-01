@@ -453,7 +453,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_acknowledge_feedback',
       skipPermission: true,
-      description: 'List unresolved PR review threads that must be addressed or dismissed. Call squad_identity_resolve_token first.',
+      description: 'List unresolved PR review threads and batched closure guidance. After all threads resolve, check reviewDecision; if CHANGES_REQUESTED remains, ping the human reviewer and submit role-gate approval separately via squad_reviews_execute_pr_review. Call squad_identity_resolve_token first.',
       parameters: {
         type: 'object',
         properties: {
@@ -509,7 +509,7 @@ const session = await joinSession({
     {
       name: 'squad_reviews_resolve_thread',
       skipPermission: true,
-      description: 'Reply to a PR review thread, then resolve it as addressed or dismissed. Call squad_identity_resolve_token first.',
+      description: 'Reply to and resolve a PR review thread; returns two-step closure guidance to check reviewDecision and keep human re-review/dismissal distinct from Squad role-gate approval. Call squad_identity_resolve_token first.',
       parameters: {
         type: 'object',
         properties: {

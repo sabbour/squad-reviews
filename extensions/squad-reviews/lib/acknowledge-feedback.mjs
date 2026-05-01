@@ -11,6 +11,7 @@ const INSTRUCTION = [
   'Do not make one commit or one push per thread; each synchronize can create notification noise and trigger repeated approval invalidation or rebases.',
   'After pushing, post or update one consolidated PR comment with squad_reviews_post_feedback_batch, then resolve individual threads with concise substantive replies that reference the batch.',
   "For each thread after the batch is pushed: call squad_reviews_resolve_thread with action='addressed' and the batch commit SHA, OR call with action='dismissed' and justification.",
+  'After all threads are resolved, check PR reviewDecision. If it is still CHANGES_REQUESTED, ping the human reviewer for re-review/dismissal; separately submit any required Squad role-gate approval with squad_reviews_execute_pr_review.',
 ].join(' ');
 
 function getSquadAgentAuthors(config) {
@@ -71,6 +72,7 @@ export async function acknowledgeFeedback(repoRoot, token, { pr, owner, repo }) 
       commit: 'Create one commit for the feedback batch; avoid per-thread commits/pushes.',
       comment: 'Use squad_reviews_post_feedback_batch to post or update one consolidated PR comment with the batch commit SHA and per-reviewer summary before resolving threads.',
       resolve: 'Resolve individual threads only after the batch commit/comment exists.',
+      closure: 'After totalUnresolved reaches 0, check reviewDecision. CHANGES_REQUESTED still requires a human re-review/dismissal ping, while Squad role-gate approval must be submitted separately via squad_reviews_execute_pr_review.',
     },
   };
 }

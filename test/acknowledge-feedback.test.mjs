@@ -91,8 +91,10 @@ describe('acknowledge-feedback.mjs', () => {
     assert.equal(result.totalUnresolved, 1);
     assert.match(result.instruction, /one implementation pass/i);
     assert.match(result.instruction, /one commit/i);
+    assert.match(result.instruction, /reviewDecision/i);
     assert.equal(result.batchPlan.mode, 'batched-per-pr');
     assert.match(result.batchPlan.comment, /consolidated PR comment/i);
+    assert.match(result.batchPlan.closure, /squad_reviews_execute_pr_review/i);
   });
 
   it('includes threads from all feedback sources', async () => {

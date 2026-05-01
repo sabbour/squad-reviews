@@ -27,6 +27,8 @@ describe('feedback-batch.mjs', () => {
     assert.match(body, /PRRT_1 \(src\/auth\.ts:L42\): Added null guard/);
     assert.match(body, /102: Explained existing invariant/);
     assert.match(body, /one implementation pass, one validation run, and one feedback-fix commit/);
+    assert.match(body, /reviewDecision/);
+    assert.match(body, /squad_reviews_execute_pr_review/);
   });
 
   it('posts one consolidated PR comment when no prior batch comment exists', async () => {
@@ -54,7 +56,7 @@ describe('feedback-batch.mjs', () => {
       commentId: 9001,
       updated: false,
       marker: '<!-- squad-feedback-batch -->',
-      instruction: 'Use this consolidated comment as the batch summary, then resolve individual review threads with concise replies that reference the same commit SHA.',
+      instruction: 'Use this consolidated comment as the batch summary, then resolve individual review threads with concise replies that reference the same commit SHA. After all threads are resolved, check reviewDecision; CHANGES_REQUESTED still requires a human re-review/dismissal ping, and Squad role-gate approval must be submitted separately with squad_reviews_execute_pr_review.',
     });
     assert.equal(spy.calls.length, 2);
   });

@@ -63,7 +63,7 @@ export function buildFeedbackBatchComment({ sha, summary, threads = [] }) {
 
   lines.push(
     '',
-    '_Batched by Squad: one implementation pass, one validation run, and one feedback-fix commit where possible._',
+    '_Batched by Squad: one implementation pass, one validation run, and one feedback-fix commit where possible. After all threads are resolved, check reviewDecision; if it remains CHANGES_REQUESTED, ping the human reviewer for re-review/dismissal, and submit required Squad role-gate approval separately with squad_reviews_execute_pr_review._',
   );
 
   return lines.join('\n');
@@ -96,6 +96,6 @@ export async function postFeedbackBatch(repoRoot, token, options) {
   return {
     ...result,
     marker: FEEDBACK_BATCH_MARKER,
-    instruction: 'Use this consolidated comment as the batch summary, then resolve individual review threads with concise replies that reference the same commit SHA.',
+    instruction: 'Use this consolidated comment as the batch summary, then resolve individual review threads with concise replies that reference the same commit SHA. After all threads are resolved, check reviewDecision; CHANGES_REQUESTED still requires a human re-review/dismissal ping, and Squad role-gate approval must be submitted separately with squad_reviews_execute_pr_review.',
   };
 }

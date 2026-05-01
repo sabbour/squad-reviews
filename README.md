@@ -168,8 +168,9 @@ flowchart LR
 2. **Execute** — the reviewer reads the artifact using its charter and posts a native GitHub review (`COMMENT`, `REQUEST_CHANGES`, or `APPROVE`).
 3. **Acknowledge** — the implementer fetches unresolved feedback threads.
 4. **Resolve** — implementers batch related feedback into one implementation pass and one feedback-fix commit where possible, post/update one consolidated PR comment, then reply to and resolve each thread. The reply-before-resolve guard ensures no thread is silently dismissed.
+5. **Close in two steps** — after all threads are resolved, check the PR `reviewDecision`. If it remains `CHANGES_REQUESTED`, ping the human reviewer for re-review or dismissal; separately submit any required Squad role-gate approval with `squad_reviews_execute_pr_review`.
 
-For PRs, the canonical approval signal is a native GitHub review with state `APPROVED`. For issues (design proposals), approval is represented by the `{role}:approved` label.
+For PRs, the canonical approval signal is a native GitHub review with state `APPROVED`. Resolving threads or getting a human dismissal does not satisfy Squad role gates; role-gate approval must be posted through `squad_reviews_execute_pr_review`. For issues (design proposals), approval is represented by the `{role}:approved` label.
 
 ---
 
