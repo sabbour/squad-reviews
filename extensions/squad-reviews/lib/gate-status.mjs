@@ -54,6 +54,15 @@ function anyPathMatches(paths, patterns) {
   return paths.some(p => patterns.some(pat => matchesGlob(p, pat)));
 }
 
+function anyLabelMatches(labels, patterns) {
+  if (!patterns || patterns.length === 0) return false;
+  const normalized = labels.map(l => l.toLowerCase());
+  return normalized.some(label => patterns.some(pat => label === pat.toLowerCase()));
+}
+
+const DOCS_LIKE_RE = /(\.mdx?$)|^docs\/|^docs-site\/|^\.squad\/|^\.changeset\//i;
+const DEFAULT_SENSITIVE_PATHS = ['.github/workflows/**', '**/auth/**', '**/security/**', '**/guardrail/**', '**/guardrails/**'];
+
 /**
  * Evaluate whether a role is required given PR context.
  * @param {object} gateRule - The role's gateRule config
@@ -69,8 +78,25 @@ export function isRoleRequired(gateRule, prLabels, changedPaths, labelAuthority,
   // Conditional evaluation
   const normalizedLabels = prLabels.map(l => l.toLowerCase());
 
+  if (gateRule.hardBlockLabel && normalizedLabels.includes(gateRule.hardBlockLabel.toLowerCase())) {
+    return { required: true, blocked: true, reason: `hard block label present: ${gateRule.hardBlockLabel}` };
+  }
+
+  const bypassWhen = gateRule.bypassWhen || {};
+  const isDocsOnly = changedPaths.length > 0 && changedPaths.every(p => DOCS_LIKE_RE.test(p));
+  const hasArchitectureLabel = normalizedLabels.includes('architecture');
+  const sensitivePaths = gateRule.sensitivePaths || DEFAULT_SENSITIVE_PATHS;
+  const hasSensitivePath = anyPathMatches(changedPaths, sensitivePaths);
+  const docsOnlyWaives =
+    bypassWhen.docsOnly === true && isDocsOnly &&
+    (bypassWhen.noArchitectureLabel !== true || !hasArchitectureLabel) &&
+    (bypassWhen.noSensitivePaths !== true || !hasSensitivePath);
+  if (docsOnlyWaives) {
+    return { required: false, reason: 'docs-only PR; no sensitive paths or architecture label' };
+  }
+
   // Check bypass labels
-  const bypassLabels = (gateRule.bypassLabels || []).concat(gateRule.bypassWhen?.labels || []);
+  const bypassLabels = (gateRule.bypassLabels || []).concat(bypassWhen.labels || []);
   const matchingBypass = bypassLabels.filter(bl => normalizedLabels.includes(bl.toLowerCase()));
 
   if (matchingBypass.length > 0) {
@@ -96,13 +122,22 @@ export function isRoleRequired(gateRule, prLabels, changedPaths, labelAuthority,
     return { required: false, reason: 'bypass label present' };
   }
 
-  // Check requiredWhen paths
+  // Check requiredWhen labels and paths
+  const requiredLabels = gateRule.requiredWhen?.labels || [];
+  if (requiredLabels.length > 0 && anyLabelMatches(normalizedLabels, requiredLabels)) {
+    return { required: true, reason: 'labels match required labels' };
+  }
+
   const requiredPaths = gateRule.requiredWhen?.paths || [];
   if (requiredPaths.length > 0) {
     if (anyPathMatches(changedPaths, requiredPaths)) {
       return { required: true, reason: 'changed files match required paths' };
     }
-    return { required: false, reason: 'no changed files match required paths' };
+    return { required: false, reason: 'no changed files or labels match requiredWhen' };
+  }
+
+  if (requiredLabels.length > 0) {
+    return { required: false, reason: 'no changed files or labels match requiredWhen' };
   }
 
   // No conditions specified — treat as required
@@ -181,6 +216,7 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
   // For each role, evaluate if required and find the latest review
   const roleStatuses = [];
   const skippedRoles = [];
+  const blockedRoles = [];
 
   for (const role of effectiveRoles) {
     const reviewer = config.reviewers[role];
@@ -197,6 +233,9 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
 
     // Evaluate conditional requirements
     const requirement = isRoleRequired(gateRule, prLabels, changedPaths, labelAuthority || null, authorizedActors);
+    if (requirement.blocked) {
+      blockedRoles.push({ role, reason: requirement.reason });
+    }
     if (!requirement.required) {
       skippedRoles.push({ role, reason: requirement.reason });
       roleStatuses.push({
@@ -209,6 +248,7 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
         latestState: null,
         latestReviewedAt: null,
         reviewerLogin: null,
+        blocked: false,
       });
       continue;
     }
@@ -242,6 +282,7 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
       latestState: latestReview?.state || null,
       latestReviewedAt: latestReview?.submitted_at || null,
       reviewerLogin: latestReview?.user?.login || null,
+      blocked: requirement.blocked === true,
     });
   }
 
@@ -277,7 +318,7 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
   const requiredStatuses = roleStatuses.filter(r => r.required);
   const approvedRoles = requiredStatuses.filter(r => r.approved).map(r => r.role);
   const pendingRoles = requiredStatuses.filter(r => !r.approved).map(r => r.role);
-  const passed = pendingRoles.length === 0 && unresolvedCount === 0;
+  const passed = pendingRoles.length === 0 && unresolvedCount === 0 && blockedRoles.length === 0;
 
   return {
     passed,
@@ -288,6 +329,7 @@ export async function checkGateStatus(repoRoot, token, { pr, owner, repo, roles 
     approvedRoles,
     pendingRoles,
     skippedRoles,
+    blockedRoles,
     unresolvedThreads: unresolvedCount,
     summary: passed
       ? '✅ Review gate passed — all roles approved, no unresolved threads'

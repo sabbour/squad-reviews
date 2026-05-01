@@ -5,7 +5,9 @@
       "agent": "nibbler",
       "dimension": "Code quality, correctness, test coverage, maintainability",
       "charterPath": ".squad/agents/nibbler/charter.md",
-      "gateRule": { "required": "always" }
+      "gateRule": {
+        "required": "always"
+      }
     },
     "security": {
       "agent": "zapp",
@@ -13,15 +15,48 @@
       "charterPath": ".squad/agents/zapp/charter.md",
       "gateRule": {
         "required": "conditional",
-        "bypassWhen": { "labels": ["squad:chore-auto"] },
-        "requiredWhen": { "paths": [".github/workflows/**", "**/auth/**", "**/security/**"] }
+        "bypassWhen": {
+          "docsOnly": true,
+          "noArchitectureLabel": true,
+          "noSensitivePaths": true
+        },
+        "sensitivePaths": [
+          ".github/workflows/**",
+          "**/auth/**",
+          "**/security/**",
+          "**/guardrail/**",
+          "**/guardrails/**"
+        ]
       }
     },
     "architecture": {
       "agent": "leela",
       "dimension": "Architecture alignment, pack boundaries, API contracts",
       "charterPath": ".squad/agents/leela/charter.md",
-      "gateRule": { "required": "always" }
+      "gateRule": {
+        "required": "conditional",
+        "requiredWhen": {
+          "labels": [
+            "architecture"
+          ]
+        },
+        "invalidationPaths": [
+          "packages/*/package.json",
+          "packages/*/src/index.ts",
+          "packages/*/src/index.tsx",
+          "packages/*/src/api/**",
+          "packages/*/src/contract/**",
+          "packages/*/src/contracts/**",
+          "packages/*/src/schema/**",
+          "packages/*/src/schemas/**",
+          "packages/*/src/**/*pack*.ts",
+          "packages/*/src/**/*boundary*.ts",
+          "packages/*/src/**/*provider*.ts",
+          "packages/*/src/**/*registry*.ts",
+          "docs/adr/**",
+          ".squad/decisions/**"
+        ]
+      }
     },
     "docs": {
       "agent": "amy",
@@ -29,8 +64,23 @@
       "charterPath": ".squad/agents/amy/charter.md",
       "gateRule": {
         "required": "conditional",
-        "requiredWhen": { "paths": ["packages/*/src/**", "src/**"] },
-        "bypassLabels": ["skip-docs", "docs:not-applicable"]
+        "bypassWhen": {
+          "docsOnly": true,
+          "noArchitectureLabel": true,
+          "noSensitivePaths": true
+        },
+        "bypassLabels": [
+          "docs:not-applicable",
+          "docs:approved"
+        ],
+        "hardBlockLabel": "docs:rejected",
+        "satisfiedByContent": [
+          "docs/**",
+          "docs-site/**",
+          ".changeset/**",
+          "**/*.md",
+          "**/*.mdx"
+        ]
       }
     }
   },
@@ -41,5 +91,9 @@
       "dismissed": "Dismissed: {justification}"
     }
   },
-  "feedbackSources": ["squad-agents", "humans", "github-copilot-bot"]
+  "feedbackSources": [
+    "squad-agents",
+    "humans",
+    "github-copilot-bot"
+  ]
 }

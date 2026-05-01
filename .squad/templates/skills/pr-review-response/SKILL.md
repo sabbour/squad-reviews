@@ -1,6 +1,6 @@
 ---
 name: "pr-review-response"
-description: "Teaches agents to reply to PR review comment threads after fixing issues, making resolutions traceable"
+description: "Teaches agents to batch PR review feedback fixes, post one consolidated update, and resolve threads traceably"
 domain: "pull-requests, code-review, traceability"
 confidence: "low"
 source: "observed (agents fix review feedback silently — reviewers can't tell which comments were addressed)"
@@ -26,7 +26,9 @@ Use this skill whenever:
 ## SCOPE
 
 ✅ THIS SKILL PRODUCES:
-- Reply comments on each review thread explaining the fix
+- One batched implementation pass for related feedback on a PR
+- One consolidated PR update/comment with the batch commit SHA
+- Concise reply comments on each review thread explaining the fix or dismissal
 - Optionally resolved threads (via GraphQL when appropriate)
 - Commit messages that reference the PR and review context
 
@@ -59,9 +61,9 @@ gh api repos/{owner}/{repo}/pulls/{pr_number}/comments --paginate
 
 Each comment object contains `id`, `body`, `path`, `line`, and `in_reply_to_id`. Top-level comments have no `in_reply_to_id` — those are the ones you reply to.
 
-### Step 2: Fix the code
+### Step 2: Fix the code as a batch
 
-Make the actual code changes. This is your normal domain work — the skill doesn't prescribe how to fix, only how to communicate the fix.
+Make the actual code changes in one implementation pass for all related actionable feedback on the PR. This is your normal domain work — the skill does not prescribe how to fix, only how to communicate the fix. Do not use one commit/push cycle per thread unless feedback items are truly unrelated and cannot be safely batched.
 
 **Track what you changed.** For each review comment, note:
 - The comment `id` (top-level, not a reply)
@@ -69,9 +71,13 @@ Make the actual code changes. This is your normal domain work — the skill does
 - What you actually changed (brief description)
 - The commit SHA after pushing (if available)
 
-### Step 3: Reply to each review thread
+### Step 3: Commit once and post a consolidated PR update
 
-After fixing and committing, reply to **each** review comment thread individually.
+After fixing and validating, create one feedback-fix commit where possible. Post or update one PR-level feedback summary with the batch commit SHA and the list of threads covered before replying to individual threads.
+
+### Step 4: Reply to each review thread
+
+After the consolidated batch update exists, reply to **each** review comment thread individually with a concise note that references the batch commit/update.
 
 **REST API call (via gh CLI):**
 
@@ -98,7 +104,7 @@ gh api repos/bradygaster/squad/pulls/42/comments/18236/replies \
   -f body="Considered but not applied — this path needs to stay absolute because worktree resolution depends on it. See detectSquadDir() in detect-squad-dir.ts."
 ```
 
-### Step 4: Resolve threads (optional, GraphQL only)
+### Step 5: Resolve threads (optional, GraphQL only)
 
 Thread resolution is only available via the GitHub GraphQL API. Use this when your fix fully addresses the comment and no further discussion is needed.
 
@@ -143,7 +149,7 @@ gh api graphql -f query='
 
 **Rule of thumb:** Agent-to-agent threads (e.g., Copilot review → agent fix) can be resolved by the fixer. Human reviewer threads should be left for the human to resolve.
 
-### Step 5: Commit message traceability
+### Step 6: Commit message traceability
 
 Commit messages should reference the PR context:
 
@@ -168,10 +174,11 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 
 1. **READ** — Fetch review threads using MCP tool or `gh api`
 2. **FIX** — Make code changes, tracking comment ID → change mapping
-3. **COMMIT** — Push with traceable commit message referencing PR and comments
-4. **REPLY** — Post individual reply to each thread via `gh api .../replies`
-5. **RESOLVE** — (Optional) Resolve agent-to-agent threads via GraphQL
-6. **STOP** — Do not batch-reply, do not skip threads, do not resolve human threads
+3. **COMMIT** — Push one traceable feedback-fix commit referencing PR and comments where possible
+4. **BATCH UPDATE** — Post/update one consolidated PR comment with the batch commit SHA
+5. **REPLY** — Post concise individual replies to each thread via `gh api .../replies` that reference the batch
+6. **RESOLVE** — (Optional) Resolve agent-to-agent threads via GraphQL
+7. **STOP** — Do not skip threads, do not resolve human threads, and do not create one commit/push/comment cycle per thread
 
 ## Examples
 
@@ -198,7 +205,7 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 - id: 55124 — "Consider using path.join()" on `detect-squad-dir.ts:58`
 - id: 55125 — "This log message is too verbose" on `output.ts:15`
 
-**Agent handles each individually:**
+**Agent batches one implementation pass, then resolves threads individually:**
 ```bash
 # Fix all three, commit
 git add packages/squad-cli/src/cli/core/detect-squad-dir.ts packages/squad-cli/src/cli/core/output.ts
@@ -210,7 +217,7 @@ git commit -m "fix: address 3 review comments on PR #99
 
 git push
 
-# Reply to each thread individually
+# Post/update one PR-level batch summary, then reply to each thread individually
 gh api repos/bradygaster/squad/pulls/99/comments/55123/replies \
   -f body="Fixed — added early return when squadDir is undefined"
 
@@ -259,7 +266,8 @@ Do NOT resolve the thread when pushing back. Leave it open for the reviewer to c
 ## Anti-Patterns
 
 - ❌ **Fixing silently** — Making code changes without replying to the review thread. The reviewer has no way to know which comments were addressed.
-- ❌ **Batch-replying "all fixed"** — A single comment saying "Addressed all review feedback" on the PR. Each thread needs its own reply so reviewers can verify individually.
+- ❌ **One thread, one commit loop** — Fixing/pushing/commenting each thread separately creates notification noise and repeatedly invalidates approvals/rebases; batch related feedback per PR.
+- ❌ **Only batch-replying "all fixed"** — A consolidated PR comment is good, but each thread still needs its own concise reply so reviewers can verify and GitHub can resolve individually.
 - ❌ **Resolving without explaining** — Marking threads resolved without posting a reply first. The resolution gives no context on what was done.
 - ❌ **Resolving human reviewer threads** — Only resolve threads from automated reviewers (Copilot, bots). Let human reviewers confirm and resolve their own threads.
 - ❌ **Vague replies** — "Fixed" or "Done" without saying what was changed. The reply should be specific enough that the reviewer doesn't need to re-read the diff.

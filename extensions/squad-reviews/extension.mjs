@@ -14,6 +14,7 @@ import { acknowledgeFeedback } from './lib/acknowledge-feedback.mjs';
 import { checkGateStatus } from './lib/gate-status.mjs';
 import { applyLabel, postComment } from './lib/github-api.mjs';
 import { executePrReview } from './lib/execute-review.mjs';
+import { postFeedbackBatch } from './lib/feedback-batch.mjs';
 import { executeIssueReview } from './lib/issue-review.mjs';
 import { loadConfig, resolveBotLogin } from './lib/review-config.mjs';
 import { requestIssueReview, requestPrReview } from './lib/request-review.mjs';
@@ -466,6 +467,43 @@ const session = await joinSession({
       handler: jsonHandler(async ({ pr, token, owner, repo }) => {
         const resolvedToken = token || await getToken();
         return acknowledgeFeedback(REPO_ROOT, resolvedToken, { pr, owner, repo });
+      }),
+    },
+
+    {
+      name: 'squad_reviews_post_feedback_batch',
+      skipPermission: true,
+      description: 'Post or update one consolidated PR comment for a batched review-feedback implementation pass. Call after one batch commit, before resolving individual threads.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pr: { type: 'number' },
+          sha: { type: 'string', description: 'Batch commit SHA containing the feedback fixes.' },
+          summary: { type: 'string', description: 'Consolidated summary of the feedback batch.' },
+          threads: {
+            type: 'array',
+            description: 'Optional per-thread summaries covered by the batch.',
+            items: {
+              type: 'object',
+              properties: {
+                threadId: { type: 'string' },
+                commentId: { type: 'string' },
+                path: { type: 'string' },
+                line: { type: 'number' },
+                action: { type: 'string', enum: ['addressed', 'dismissed'] },
+                summary: { type: 'string' },
+              },
+            },
+          },
+          token: { type: 'string', description: 'GitHub token (auto-resolved if omitted).' },
+          owner: { type: 'string' },
+          repo: { type: 'string' },
+        },
+        required: ['pr', 'sha', 'summary', 'owner', 'repo'],
+      },
+      handler: jsonHandler(async ({ pr, sha, summary, threads, token, owner, repo }) => {
+        const resolvedToken = token || await getToken();
+        return postFeedbackBatch(REPO_ROOT, resolvedToken, { pr, sha, summary, threads: threads || [], owner, repo });
       }),
     },
     {

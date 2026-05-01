@@ -5,18 +5,82 @@ on:
     branches: ["*"]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.filter.outputs.docs_only }}
+    steps:
+      - name: Classify PR file changes
+        id: filter
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.eventName !== 'pull_request') {
+              core.setOutput('docs_only', 'false');
+              core.info(`event=${context.eventName} — running full CI`);
+              return;
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+            const paths = files.map(file => file.filename);
+            const isDocsLike = (path) =>
+              path.endsWith('.md') ||
+              path.endsWith('.mdx') ||
+              path.startsWith('docs/') ||
+              path.startsWith('docs-site/') ||
+              path.startsWith('.squad/') ||
+              path.startsWith('.changeset/');
+            const docsOnly = paths.length > 0 && paths.every(isDocsLike);
+            core.setOutput('docs_only', String(docsOnly));
+            core.info(`changed=${paths.length} docs_only=${docsOnly}`);
+
   test:
     name: Test
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
-      - run: npm install
+      - run: npm ci
 
       - run: npm test
+
+  ci-gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    needs: [changes, test]
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          changes_result="${{ needs.changes.result }}"
+          test_result="${{ needs.test.result }}"
+
+          if [[ "$changes_result" != "success" ]]; then
+            echo "CI failed: changes=${changes_result}"
+            exit 1
+          fi
+          if [[ ! "$test_result" =~ ^(success|skipped)$ ]]; then
+            echo "CI failed: test=${test_result}"
+            exit 1
+          fi
+          echo "CI passed: changes=${changes_result}, test=${test_result}"

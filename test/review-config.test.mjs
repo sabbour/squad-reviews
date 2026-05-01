@@ -71,4 +71,34 @@ describe('review-config.mjs', () => {
   it('resolveReviewer throws for unknown role', () => {
     assert.throws(() => resolveReviewer(createMockConfig(), 'unknown-role'), /Unknown reviewer role/i);
   });
+
+  it('accepts role-scoped invalidation trigger arrays', async (t) => {
+    const workspace = await createWorkspace(t);
+    const config = createMockConfig();
+    config.reviewers.codereview.gateRule = {
+      required: 'always',
+      invalidationPaths: ['src/**'],
+      invalidationLabels: ['codereview:approved'],
+      satisfiedByContent: ['docs/**'],
+    };
+    await writeFile(resolve(workspace, '.squad', 'reviews', 'config.json'), `${JSON.stringify(config, null, 2)}
+`);
+
+    const loaded = loadConfig(workspace);
+    assert.deepEqual(loaded.reviewers.codereview.gateRule.invalidationPaths, ['src/**']);
+  });
+
+  it('rejects non-array invalidation trigger config', async (t) => {
+    const workspace = await createWorkspace(t);
+    const config = createMockConfig();
+    config.reviewers.codereview.gateRule = {
+      required: 'always',
+      invalidationPaths: 'src/**',
+    };
+    await writeFile(resolve(workspace, '.squad', 'reviews', 'config.json'), `${JSON.stringify(config, null, 2)}
+`);
+
+    assert.throws(() => loadConfig(workspace), /invalidationPaths must be an array/i);
+  });
+
 });

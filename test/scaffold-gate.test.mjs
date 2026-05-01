@@ -2,7 +2,6 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import {
   generateReusableWorkflow,
@@ -14,7 +13,7 @@ describe('scaffold-gate', () => {
   let tempDir;
 
   beforeEach(() => {
-    tempDir = join(tmpdir(), `squad-reviews-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tempDir = join(process.cwd(), '.test-workdir', `squad-reviews-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(join(tempDir, '.squad', 'reviews'), { recursive: true });
     writeFileSync(
       join(tempDir, '.squad', 'reviews', 'config.json'),
@@ -49,14 +48,68 @@ describe('scaffold-gate', () => {
       assert.ok(yaml.includes('unresolved'));
     });
 
-    it('includes merge-commit guard to preserve labels on branch catch-up', () => {
+    it('includes PR diff guard to preserve labels on pure base catch-up', () => {
       const yaml = generateReusableWorkflow(['codereview', 'security']);
-      // Should detect merge-only updates via compare API
+      // Should compare PR-vs-base file signatures before and after synchronize
       assert.ok(yaml.includes('compareCommitsWithBasehead'), 'should use compare API');
-      assert.ok(yaml.includes('isMergeOnly'), 'should have merge-only detection variable');
-      assert.ok(yaml.includes('parents'), 'should check commit parents to identify merges');
+      assert.ok(yaml.includes('isPureBaseSync'), 'should have pure base-sync detection variable');
+      assert.ok(yaml.includes('sigOf'), 'should compare file signatures');
       assert.ok(yaml.includes('preserving approval labels'), 'should log when preserving labels');
-      assert.ok(yaml.includes('New non-merge commits detected'), 'should log when stripping labels');
+      assert.ok(yaml.includes('affected domains'), 'should log scoped invalidation');
+      assert.ok(yaml.includes('roleAffectedBySync'), 'should classify affected reviewer roles');
+      assert.ok(yaml.includes('invalidationPaths'), 'should honor configured invalidation path triggers');
+      assert.ok(!yaml.includes('for (const role of allRoles) {\n                  const label = `\${role}:approved`;'), 'should not blanket-clear every role');
+    });
+
+    it('clears stale approvals by affected reviewer domain, not blanket synchronize', () => {
+      const yaml = generateReusableWorkflow(['codereview', 'security', 'architecture'], {
+        reviewers: {
+          codereview: { gateRule: { required: 'always' } },
+          security: {
+            gateRule: {
+              required: 'conditional',
+              bypassWhen: { docsOnly: true, noArchitectureLabel: true, noSensitivePaths: true },
+            },
+          },
+          architecture: {
+            gateRule: {
+              required: 'conditional',
+              requiredWhen: { labels: ['architecture'] },
+            },
+          },
+        },
+      });
+
+      assert.ok(yaml.includes('syncChangedPaths = changedBetween'), 'should compute changed paths between synchronize SHAs');
+      assert.ok(yaml.includes('roleAffectedBySync'), 'should evaluate affected reviewer domains');
+      assert.ok(yaml.includes('rolesToClear = allRoles.filter(roleAffectedBySync)'), 'should clear only affected roles');
+      assert.ok(yaml.includes('no reviewer domains were affected'), 'should preserve labels when no domain triggers changed');
+      assert.ok(!yaml.includes('for (const role of allRoles) {\\n                  const label'), 'should not blanket-clear every role');
+    });
+
+    it('includes docs-only and hard-block label gate logic', () => {
+      const yaml = generateReusableWorkflow(['codereview', 'security', 'docs'], {
+        reviewers: {
+          codereview: { gateRule: { required: 'always' } },
+          security: {
+            gateRule: {
+              required: 'conditional',
+              bypassWhen: { docsOnly: true, noArchitectureLabel: true, noSensitivePaths: true },
+            },
+          },
+          docs: {
+            gateRule: {
+              required: 'conditional',
+              bypassLabels: ['docs:not-applicable', 'docs:approved'],
+              hardBlockLabel: 'docs:rejected',
+            },
+          },
+        },
+      });
+
+      assert.ok(yaml.includes('docs-only PR; no sensitive paths or architecture label'));
+      assert.ok(yaml.includes('hardBlockLabel'));
+      assert.ok(yaml.includes('docs:not-applicable'));
     });
   });
 

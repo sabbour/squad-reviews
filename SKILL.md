@@ -53,7 +53,16 @@ This is done via `squad_reviews_execute_issue_review`.
 
 After review feedback arrives, the implementing agent must call `squad_reviews_acknowledge_feedback` to fetch all unresolved review threads.
 
-For each unresolved thread, choose exactly one path:
+Batch related threads for the same PR into one implementation pass before pushing:
+
+- fix all actionable feedback together
+- validate once
+- create one commit for the batch
+- prefer one consolidated PR comment/update with the batch commit SHA and summary
+
+Do **not** make one commit or push per thread; each synchronize can create notification noise and trigger repeated approval invalidation or rebases.
+
+For each unresolved thread after the batch commit exists, choose exactly one path:
 
 - **Addressed** — fix the code, then resolve with action `addressed` and include the commit SHA containing the fix.
 - **Dismissed** — keep the code as-is, then resolve with action `dismissed` and include a clear justification.

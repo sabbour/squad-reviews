@@ -89,6 +89,10 @@ describe('acknowledge-feedback.mjs', () => {
 
     assert.deepEqual(result.unresolvedThreads.map((thread) => thread.threadId), ['PRRT_1']);
     assert.equal(result.totalUnresolved, 1);
+    assert.match(result.instruction, /one implementation pass/i);
+    assert.match(result.instruction, /one commit/i);
+    assert.equal(result.batchPlan.mode, 'batched-per-pr');
+    assert.match(result.batchPlan.comment, /consolidated PR comment/i);
   });
 
   it('includes threads from all feedback sources', async () => {

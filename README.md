@@ -102,8 +102,12 @@ Alternatively, edit `.squad/reviews/config.json` manually and map each role slug
       "charterPath": ".squad/agents/zapp/charter.md",
       "gateRule": {
         "required": "conditional",
-        "bypassWhen": { "labels": ["squad:chore-auto"] },
-        "requiredWhen": { "paths": [".github/workflows/**", "**/auth/**"] }
+        "bypassWhen": {
+          "docsOnly": true,
+          "noArchitectureLabel": true,
+          "noSensitivePaths": true
+        },
+        "sensitivePaths": [".github/workflows/**", "**/auth/**", "**/security/**"]
       }
     },
     "docs": {
@@ -112,8 +116,13 @@ Alternatively, edit `.squad/reviews/config.json` manually and map each role slug
       "charterPath": ".squad/agents/amy/charter.md",
       "gateRule": {
         "required": "conditional",
-        "requiredWhen": { "paths": ["packages/*/src/**", "src/**"] },
-        "bypassLabels": ["skip-docs", "docs:not-applicable"]
+        "bypassWhen": {
+          "docsOnly": true,
+          "noArchitectureLabel": true,
+          "noSensitivePaths": true
+        },
+        "bypassLabels": ["docs:not-applicable", "docs:approved"],
+        "hardBlockLabel": "docs:rejected"
       }
     }
   },
@@ -158,7 +167,7 @@ flowchart LR
 1. **Request** — route a PR or issue to a configured reviewer role.
 2. **Execute** — the reviewer reads the artifact using its charter and posts a native GitHub review (`COMMENT`, `REQUEST_CHANGES`, or `APPROVE`).
 3. **Acknowledge** — the implementer fetches unresolved feedback threads.
-4. **Resolve** — each thread is replied to and resolved. The reply-before-resolve guard ensures no thread is silently dismissed.
+4. **Resolve** — implementers batch related feedback into one implementation pass and one feedback-fix commit where possible, post/update one consolidated PR comment, then reply to and resolve each thread. The reply-before-resolve guard ensures no thread is silently dismissed.
 
 For PRs, the canonical approval signal is a native GitHub review with state `APPROVED`. For issues (design proposals), approval is represented by the `{role}:approved` label.
 
@@ -197,7 +206,8 @@ These tools are available to Copilot CLI agents when the extension is installed:
 |------|-------------|
 | `squad_reviews_request_pr_review` | Request a PR review from a configured reviewer role |
 | `squad_reviews_execute_pr_review` | Execute a PR review (COMMENT, REQUEST_CHANGES, or APPROVE) |
-| `squad_reviews_acknowledge_feedback` | List unresolved PR review threads |
+| `squad_reviews_acknowledge_feedback` | List unresolved PR review threads and return a batch plan |
+| `squad_reviews_post_feedback_batch` | Post/update one consolidated PR comment for a feedback batch |
 | `squad_reviews_resolve_thread` | Reply to and resolve a PR review thread |
 | `squad_reviews_request_issue_review` | Request an issue review from a reviewer role |
 | `squad_reviews_execute_issue_review` | Execute an issue review (optionally approve) |
@@ -241,16 +251,21 @@ Controls whether a reviewer role is required for merge:
 |-------|------|-------------|
 | `required` | `"always"` \| `"conditional"` \| `"optional"` | Requirement level |
 | `bypassWhen.labels` | string[] | Skip this role if PR has any of these labels |
+| `bypassWhen.docsOnly` | boolean | Skip this role for docs-only PRs when paired with the no-architecture/no-sensitive guards |
+| `requiredWhen.labels` | string[] | Only require if PR labels match these names |
 | `requiredWhen.paths` | string[] | Only require if changed files match these globs |
-| `bypassLabels` | string[] | Shorthand bypass labels (e.g., `["skip-docs"]`) |
+| `bypassLabels` | string[] | Shorthand bypass labels (e.g., `["docs:not-applicable"]`) |
+| `hardBlockLabel` | string | Label that fails the gate regardless of other conditions (e.g., `docs:rejected`) |
 | `bypassLabelAuthority` | string | Role slug whose bot is authorized to apply bypass labels. If set, bypass labels applied by other actors are ignored. |
 
 **Evaluation logic for `conditional` roles:**
 
-1. If any `bypassLabels` match the PR → **skip**
-2. If any `bypassWhen.labels` match the PR AND no `requiredWhen.paths` match changed files → **skip**
-3. If `requiredWhen.paths` is set and no changed files match → **skip**
-4. Otherwise → **required**
+1. If `hardBlockLabel` is present on the PR → **fail**
+2. If `bypassWhen.docsOnly` matches a docs-only, non-sensitive, non-architecture PR → **skip**
+3. If any `bypassLabels` match the PR → **skip**
+4. If any `bypassWhen.labels` match the PR AND no `requiredWhen` condition matches → **skip**
+5. If `requiredWhen.paths` or `requiredWhen.labels` is set and nothing matches → **skip**
+6. Otherwise → **required**
 
 ### `threadResolution`
 
@@ -307,10 +322,10 @@ flowchart TD
 ```
 
 - The gate fetches changed files and PR labels
-- If `requiredWhen.paths` is configured, the role is only required when changed files match those globs
+- If `requiredWhen.paths` or `requiredWhen.labels` is configured, the role is only required when files or labels match
 - If `bypassWhen.labels` or `bypassLabels` match a PR label, the role is skipped
 
-**Example:** The `docs` role is only required when `src/**` changes, and can be bypassed with the `skip-docs` label.
+**Example:** The `docs` role is waived for docs-only PRs, accepts `docs:approved` or `docs:not-applicable` as the docs-impact signal on code-bearing PRs, and fails hard on `docs:rejected`.
 
 ### Bypass labels
 
@@ -319,7 +334,7 @@ Add bypass labels to skip conditional roles:
 ```json
 "gateRule": {
   "required": "conditional",
-  "bypassLabels": ["skip-docs", "docs:not-applicable"]
+  "bypassLabels": ["docs:not-applicable", "docs:approved"]
 }
 ```
 
@@ -327,7 +342,11 @@ When the PR has any listed label, the role is skipped and the gate passes withou
 
 ### Stale approval clearing
 
-When new commits are pushed to a PR (`synchronize` event), **all `{role}:approved` labels are automatically removed**. This ensures prior approvals are invalidated when code changes, forcing a fresh review cycle.
+When new content commits are pushed to a PR (`synchronize` event), only `{role}:approved` labels for affected reviewer domains are automatically removed. Pure base-branch catch-ups that leave the PR diff unchanged preserve all approval labels so "Update branch" does not force a needless re-review. For example, addressing security feedback should not force architecture reapproval unless architecture-triggering paths or labels are touched.
+
+### Batched feedback response
+
+Implementers should address related unresolved review threads per PR as a batch: one implementation pass, one validation run, one feedback-fix commit where possible, and one consolidated PR comment/update using `squad_reviews_post_feedback_batch`. Individual threads still receive concise `squad_reviews_resolve_thread` replies so GitHub can mark each thread resolved, but those replies should reference the same batch commit instead of creating one commit/comment cycle per thread.
 
 ### Setup after scaffolding
 

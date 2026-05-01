@@ -60,14 +60,14 @@ describe('bypass label authority enforcement', () => {
   it('skips authority check when bypassLabelAuthority not configured', () => {
     const gateRule = {
       required: 'conditional',
-      bypassLabels: ['skip-docs'],
+      bypassLabels: ['docs:not-applicable'],
     };
 
     const result = isRoleRequired(
       gateRule,
-      ['skip-docs'],
+      ['docs:not-applicable'],
       ['src/index.ts'],
-      { 'skip-docs': 'random-user' },
+      { 'docs:not-applicable': 'random-user' },
       null // no authorizedActors
     );
 
@@ -139,5 +139,71 @@ describe('bypass label authority enforcement', () => {
 
     // No requiredWhen paths, no bypass → required
     assert.equal(result.required, true);
+  });
+
+  it('skips conditional security for docs-only PRs without sensitive paths or architecture label', () => {
+    const result = isRoleRequired(
+      {
+        required: 'conditional',
+        bypassWhen: { docsOnly: true, noArchitectureLabel: true, noSensitivePaths: true },
+        sensitivePaths: ['.github/workflows/**', '**/security/**'],
+      },
+      [],
+      ['docs/guide.md', '.changeset/fix.md'],
+      {},
+      null
+    );
+
+    assert.equal(result.required, false);
+    assert.equal(result.reason, 'docs-only PR; no sensitive paths or architecture label');
+  });
+
+  it('requires conditional security for docs-only PRs with sensitive paths', () => {
+    const result = isRoleRequired(
+      {
+        required: 'conditional',
+        bypassWhen: { docsOnly: true, noArchitectureLabel: true, noSensitivePaths: true },
+        sensitivePaths: ['.github/workflows/**', '**/security/**'],
+      },
+      [],
+      ['docs/guide.md', '.github/workflows/ci.yml'],
+      {},
+      null
+    );
+
+    assert.equal(result.required, true);
+  });
+
+  it('supports label-triggered architecture requirements', () => {
+    const result = isRoleRequired(
+      {
+        required: 'conditional',
+        requiredWhen: { labels: ['architecture'] },
+      },
+      ['architecture'],
+      ['docs/adr.md'],
+      {},
+      null
+    );
+
+    assert.equal(result.required, true);
+    assert.equal(result.reason, 'labels match required labels');
+  });
+
+  it('hard-block labels make the role required and blocked', () => {
+    const result = isRoleRequired(
+      {
+        required: 'conditional',
+        hardBlockLabel: 'docs:rejected',
+      },
+      ['docs:rejected'],
+      ['docs/guide.md'],
+      {},
+      null
+    );
+
+    assert.equal(result.required, true);
+    assert.equal(result.blocked, true);
+    assert.equal(result.reason, 'hard block label present: docs:rejected');
   });
 });

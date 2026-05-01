@@ -6,7 +6,12 @@ const COPILOT_BOT_AUTHORS = new Set([
   'copilot-pull-request-reviewer[bot]',
 ]);
 
-const INSTRUCTION = "For each thread: fix code and call squad_reviews_resolve_thread with action='addressed' and the commit SHA, OR call with action='dismissed' and justification.";
+const INSTRUCTION = [
+  'Batch feedback per PR: address all related unresolved threads in one implementation pass, validate once, and create one commit for the batch.',
+  'Do not make one commit or one push per thread; each synchronize can create notification noise and trigger repeated approval invalidation or rebases.',
+  'After pushing, post or update one consolidated PR comment with squad_reviews_post_feedback_batch, then resolve individual threads with concise substantive replies that reference the batch.',
+  "For each thread after the batch is pushed: call squad_reviews_resolve_thread with action='addressed' and the batch commit SHA, OR call with action='dismissed' and justification.",
+].join(' ');
 
 function getSquadAgentAuthors(config) {
   return new Set(
@@ -60,5 +65,12 @@ export async function acknowledgeFeedback(repoRoot, token, { pr, owner, repo }) 
     unresolvedThreads,
     totalUnresolved: unresolvedThreads.length,
     instruction: INSTRUCTION,
+    batchPlan: {
+      mode: 'batched-per-pr',
+      implementation: 'Fix all actionable unresolved threads for this PR together before committing.',
+      commit: 'Create one commit for the feedback batch; avoid per-thread commits/pushes.',
+      comment: 'Use squad_reviews_post_feedback_batch to post or update one consolidated PR comment with the batch commit SHA and per-reviewer summary before resolving threads.',
+      resolve: 'Resolve individual threads only after the batch commit/comment exists.',
+    },
   };
 }

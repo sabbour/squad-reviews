@@ -225,6 +225,35 @@ export async function postReview(token, owner, repo, prNumber, payload) {
   return review.id;
 }
 
+export async function listIssueComments(token, owner, repo, issueNumber) {
+  const url = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/issues/${issueNumber}/comments?per_page=100`;
+  return requestPaginatedJson(url, token);
+}
+
+export async function updateComment(token, owner, repo, commentId, body) {
+  const url = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/issues/comments/${commentId}`;
+  const comment = await requestJson(url, {
+    method: 'PATCH',
+    token,
+    body: { body },
+  });
+
+  return comment.id;
+}
+
+export async function upsertIssueComment(token, owner, repo, issueNumber, { marker, body }) {
+  const comments = await listIssueComments(token, owner, repo, issueNumber);
+  const existing = comments.find((comment) => typeof comment.body === 'string' && comment.body.includes(marker));
+
+  if (existing) {
+    const commentId = await updateComment(token, owner, repo, existing.id, body);
+    return { commentId, updated: true };
+  }
+
+  const commentId = await postComment(token, owner, repo, issueNumber, body);
+  return { commentId, updated: false };
+}
+
 export async function postComment(token, owner, repo, issueNumber, body) {
   const url = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/issues/${issueNumber}/comments`;
   const comment = await requestJson(url, {
