@@ -133,16 +133,38 @@ jobs:
             const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
             const prLabels = pr.labels.map(l => l.name.toLowerCase());
 
-            // Clear stale approval labels on synchronize (new commits invalidate approvals)
+            // Clear stale approval labels on synchronize — but only for real code pushes,
+            // not merge-only branch catch-ups (e.g., update-branch API).
             if (context.eventName === 'pull_request' && context.payload.action === 'synchronize') {
-              core.info('New commits detected — clearing stale approval labels');
-              for (const role of allRoles) {
-                const label = \`\${role}:approved\`;
+              const before = context.payload.before;
+              const after = context.payload.after;
+              let isMergeOnly = false;
+
+              if (before && after) {
                 try {
-                  await github.rest.issues.removeLabel({ owner, repo, issue_number: prNumber, name: label });
-                  core.info(\`Removed stale label: \${label}\`);
+                  const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
+                    owner, repo,
+                    basehead: \`\${before}...\${after}\`
+                  });
+                  const newCommits = comparison.commits || [];
+                  isMergeOnly = newCommits.length > 0 && newCommits.every(c => (c.parents || []).length > 1);
                 } catch (e) {
-                  // Label may not exist — that's fine
+                  core.warning(\`Could not compare commits to detect merge-only update: \${e.message}\`);
+                }
+              }
+
+              if (isMergeOnly) {
+                core.info('Branch update is merge-only (catch-up) — preserving approval labels');
+              } else {
+                core.info('New non-merge commits detected — clearing stale approval labels');
+                for (const role of allRoles) {
+                  const label = \`\${role}:approved\`;
+                  try {
+                    await github.rest.issues.removeLabel({ owner, repo, issue_number: prNumber, name: label });
+                    core.info(\`Removed stale label: \${label}\`);
+                  } catch (e) {
+                    // Label may not exist — that's fine
+                  }
                 }
               }
             }

@@ -48,6 +48,16 @@ describe('scaffold-gate', () => {
       assert.ok(yaml.includes('APPROVED'));
       assert.ok(yaml.includes('unresolved'));
     });
+
+    it('includes merge-commit guard to preserve labels on branch catch-up', () => {
+      const yaml = generateReusableWorkflow(['codereview', 'security']);
+      // Should detect merge-only updates via compare API
+      assert.ok(yaml.includes('compareCommitsWithBasehead'), 'should use compare API');
+      assert.ok(yaml.includes('isMergeOnly'), 'should have merge-only detection variable');
+      assert.ok(yaml.includes('parents'), 'should check commit parents to identify merges');
+      assert.ok(yaml.includes('preserving approval labels'), 'should log when preserving labels');
+      assert.ok(yaml.includes('New non-merge commits detected'), 'should log when stripping labels');
+    });
   });
 
   describe('generateCallerWorkflow', () => {
