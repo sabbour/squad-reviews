@@ -1,5 +1,13 @@
 # @sabbour/squad-reviews
 
+## 1.3.3
+
+### Patch Changes
+
+- fix: preserve approval labels on merge-only branch updates
+
+  The Review Gate workflow previously stripped all approval labels on every `pull_request.synchronize` event, including harmless branch catch-ups. Now uses the compare API to detect merge-only updates and preserves labels when no real code changes are pushed.
+
 ## 1.3.2
 
 ### Patch Changes

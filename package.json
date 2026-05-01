@@ -1,6 +1,6 @@
 {
   "name": "@sabbour/squad-reviews",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Copilot CLI extension for review governance.",
   "type": "module",
   "bin": {
