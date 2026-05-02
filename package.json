@@ -18,7 +18,7 @@
     "test": "node --test test/*.test.mjs",
     "test:watch": "node --test --watch test/*.test.mjs",
     "changeset": "changeset",
-    "version": "changeset version",
+    "version": "changeset version && npm install --package-lock-only --no-audit --no-fund",
     "release": "changeset publish"
   },
   "engines": {
