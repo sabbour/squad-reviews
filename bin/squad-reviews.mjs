@@ -479,8 +479,9 @@ async function commandDoctor() {
       : 'Missing review-gate workflow — run `squad-reviews setup` (or `scaffold-gate`)',
   });
 
-  // Installed extension files
-  const extDir = join(repoRoot, '.copilot', 'extensions', 'squad-reviews');
+  // Installed extension files. Setup writes to .github/extensions/squad-reviews/
+  // (matching the squad-identity / squad-* convention).
+  const extDir = join(repoRoot, '.github', 'extensions', 'squad-reviews');
   const extEntry = join(extDir, 'extension.mjs');
   const extOk = existsSync(extEntry);
   checks.push({
@@ -488,20 +489,20 @@ async function commandDoctor() {
     ok: extOk,
     warn: !extOk,
     details: extOk
-      ? '.copilot/extensions/squad-reviews/ installed'
-      : 'Missing .copilot/extensions/squad-reviews/extension.mjs — run `squad-reviews setup`',
+      ? '.github/extensions/squad-reviews/ installed'
+      : 'Missing .github/extensions/squad-reviews/extension.mjs — run `squad-reviews setup`',
   });
 
-  // Installed skill
-  const skillFile = join(repoRoot, '.copilot', 'skills', 'squad-reviews', 'SKILL.md');
+  // Installed skill. Setup writes to .squad/skills/squad-reviews/SKILL.md.
+  const skillFile = join(repoRoot, '.squad', 'skills', 'squad-reviews', 'SKILL.md');
   const skillOk = existsSync(skillFile);
   checks.push({
     name: 'skill',
     ok: skillOk,
     warn: !skillOk,
     details: skillOk
-      ? '.copilot/skills/squad-reviews/SKILL.md installed'
-      : 'Missing .copilot/skills/squad-reviews/SKILL.md — run `squad-reviews setup`',
+      ? '.squad/skills/squad-reviews/SKILL.md installed'
+      : 'Missing .squad/skills/squad-reviews/SKILL.md — run `squad-reviews setup`',
   });
 
   return {
@@ -663,7 +664,19 @@ async function commandSetup(values) {
     log(`  ${icon} ${check.name}: ${check.details}`);
   }
 
-  log(`\n✅ squad-reviews setup complete.`);
+  // Strict success: every check must be ok && !warn. (commandDoctor's own
+  // `ok` field treats a `warn` as non-fatal-but-not-clean; for the setup
+  // summary we want the strict reading.)
+  const warnCount = doctorResult.checks.filter((c) => c.warn).length;
+  const failCount = doctorResult.checks.filter((c) => !c.ok && !c.warn).length;
+  const setupOk = warnCount === 0 && failCount === 0;
+
+  if (setupOk) {
+    log(`\n✅ squad-reviews setup complete.`);
+  } else {
+    log(`\n⚠️  squad-reviews setup completed with ${warnCount} warning(s)${failCount ? ` and ${failCount} failure(s)` : ''} — see Phase 5 above.`);
+    log(`   Address the issues above, then re-run \`squad-reviews doctor\` to verify.`);
+  }
   log(`\nNext steps:`);
   log(`  1. In a Copilot CLI session, call squad_reviews_generate_config`);
   log(`     to scaffold .squad/reviews/config.json from your squad-identity config.`);
@@ -671,8 +684,14 @@ async function commandSetup(values) {
   log(`  2. Commit all generated files.`);
   log(`  3. Set the Review Gate as a required status check in branch protection.`);
 
+  if (!setupOk) {
+    // Non-zero exit so CI / shell scripts can detect partial success.
+    process.exitCode = 1;
+  }
+
   return {
     initialized: true,
+    ok: setupOk,
     target,
     files: {
       config: configDest,
@@ -682,6 +701,7 @@ async function commandSetup(values) {
     labelsCreated,
     gateScaffolded: gateResult?.scaffolded || false,
     copilotInstructions: instructionsResult,
+    doctor: doctorResult,
   };
 }
 
