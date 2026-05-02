@@ -224,22 +224,24 @@ async function executeResolveFlow({
     throw new Error('commentId is required (must be a numeric database ID)');
   }
 
-  const formattedReply = formatReply(config.threadResolution.templates, {
-    action,
-    reply,
-    sha,
-    description,
-    justification,
-  });
+  let replyId = null;
 
-  const replyId = await deps.replyToThread({
-    token,
-    owner,
-    repo,
-    prNumber,
-    commentId,
-    body: formattedReply,
-  });
+  if (action === 'dismissed') {
+    const formattedReply = formatReply(config.threadResolution.templates, {
+      action,
+      justification,
+      reply,
+    });
+
+    replyId = await deps.replyToThread({
+      token,
+      owner,
+      repo,
+      prNumber,
+      commentId,
+      body: formattedReply,
+    });
+  }
 
   await resolveWithRetry(
     {
@@ -254,7 +256,7 @@ async function executeResolveFlow({
 
   return {
     resolved: true,
-    replyId: String(replyId),
+    replyId: replyId !== null ? String(replyId) : null,
     action,
     closureRule: buildClosureRule(closureStatus),
   };

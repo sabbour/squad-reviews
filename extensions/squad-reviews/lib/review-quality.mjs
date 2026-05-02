@@ -104,11 +104,20 @@ export function validateReviewQuality(reviewBody, event, options = {}) {
   }
 
   // 3. Citations required
-  if (requireCitations && totalCitations === 0 && inlineComments.length === 0) {
-    violations.push(
-      'Review must cite specific file paths with line numbers (e.g., "src/auth.ts:45-62"). ' +
-      'Alternatively, use inline review comments attached to specific lines.'
-    );
+  if (requireCitations) {
+    if (event === 'APPROVE') {
+      if (citations.length === 0) {
+        violations.push(
+          'Review must cite specific file paths with line numbers (e.g., "src/auth.ts:45-62"). ' +
+          'Alternatively, use inline review comments attached to specific lines.'
+        );
+      }
+    } else if (totalCitations === 0 && inlineComments.length === 0) {
+      violations.push(
+        'Review must cite specific file paths with line numbers (e.g., "src/auth.ts:45-62"). ' +
+        'Alternatively, use inline review comments attached to specific lines.'
+      );
+    }
   }
 
   // 4. APPROVE with issues pattern (approve with caveats)
@@ -122,6 +131,20 @@ export function validateReviewQuality(reviewBody, event, options = {}) {
       violations.push(
         'Do not approve with caveats. If changes are needed, use REQUEST_CHANGES instead of APPROVE. ' +
         'APPROVE means the code is ready to merge as-is.'
+      );
+    }
+  }
+
+  // 5. APPROVE must not contain non-suggestion inline comments
+  if (event === 'APPROVE' && inlineComments.length > 0) {
+    const suggestionRe = /```suggestion[\s\S]*?```/;
+    const nonSuggestionInline = inlineComments.filter((c) => !suggestionRe.test(c));
+    if (nonSuggestionInline.length > 0) {
+      violations.push(
+        'APPROVE reviews must not contain non-suggestion inline comments. Move acknowledgments, ' +
+        'observations, or praise into the review body. Inline comments are reserved for ' +
+        'REQUEST_CHANGES (or as native ```suggestion``` blocks). If you have substantive analysis, ' +
+        'put it in the review body with `path:line` citations.'
       );
     }
   }
@@ -150,5 +173,6 @@ export const QUALITY_STANDARDS = {
   requireCitations: true,
   noShallowApprovals: true,
   noApproveWithCaveats: true,
+  noInlineCommentsOnApprove: true,
   preferNativeSuggestions: true,
 };
