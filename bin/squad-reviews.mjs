@@ -479,29 +479,41 @@ async function commandDoctor() {
       : 'Missing review-gate workflow — run `squad-reviews setup` (or `scaffold-gate`)',
   });
 
-  // Installed extension files
-  const extDir = join(repoRoot, '.copilot', 'extensions', 'squad-reviews');
-  const extEntry = join(extDir, 'extension.mjs');
-  const extOk = existsSync(extEntry);
+  // Installed extension files. Setup writes to .github/extensions/squad-reviews/
+  // (project-scoped Copilot CLI extension). Accept the legacy .copilot/ location too
+  // in case a user installed manually before the path was standardized.
+  const extProjectEntry = join(repoRoot, '.github', 'extensions', 'squad-reviews', 'extension.mjs');
+  const extLegacyEntry = join(repoRoot, '.copilot', 'extensions', 'squad-reviews', 'extension.mjs');
+  const extProjectOk = existsSync(extProjectEntry);
+  const extLegacyOk = existsSync(extLegacyEntry);
+  const extOk = extProjectOk || extLegacyOk;
   checks.push({
     name: 'extension',
     ok: extOk,
     warn: !extOk,
     details: extOk
-      ? '.copilot/extensions/squad-reviews/ installed'
-      : 'Missing .copilot/extensions/squad-reviews/extension.mjs — run `squad-reviews setup`',
+      ? extProjectOk
+        ? '.github/extensions/squad-reviews/ installed'
+        : '.copilot/extensions/squad-reviews/ installed (legacy location)'
+      : `Missing extension files. Expected: ${extProjectEntry}. Re-run \`squad-reviews setup --force\` or \`squad-reviews init\` to reinstall extension assets.`,
   });
 
-  // Installed skill
-  const skillFile = join(repoRoot, '.copilot', 'skills', 'squad-reviews', 'SKILL.md');
-  const skillOk = existsSync(skillFile);
+  // Installed skill. Setup writes to .squad/skills/squad-reviews/SKILL.md.
+  // Accept legacy .copilot/skills/ too.
+  const skillProjectFile = join(repoRoot, '.squad', 'skills', 'squad-reviews', 'SKILL.md');
+  const skillLegacyFile = join(repoRoot, '.copilot', 'skills', 'squad-reviews', 'SKILL.md');
+  const skillProjectOk = existsSync(skillProjectFile);
+  const skillLegacyOk = existsSync(skillLegacyFile);
+  const skillOk = skillProjectOk || skillLegacyOk;
   checks.push({
     name: 'skill',
     ok: skillOk,
     warn: !skillOk,
     details: skillOk
-      ? '.copilot/skills/squad-reviews/SKILL.md installed'
-      : 'Missing .copilot/skills/squad-reviews/SKILL.md — run `squad-reviews setup`',
+      ? skillProjectOk
+        ? '.squad/skills/squad-reviews/SKILL.md installed'
+        : '.copilot/skills/squad-reviews/SKILL.md installed (legacy location)'
+      : `Missing skill file. Expected: ${skillProjectFile}. Re-run \`squad-reviews setup --force\` or \`squad-reviews init\` to reinstall skill assets.`,
   });
 
   return {
@@ -663,7 +675,19 @@ async function commandSetup(values) {
     log(`  ${icon} ${check.name}: ${check.details}`);
   }
 
-  log(`\n✅ squad-reviews setup complete.`);
+  const failed = doctorResult.checks.filter((c) => !c.ok && !c.warn);
+  const warned = doctorResult.checks.filter((c) => c.warn);
+  const setupOk = failed.length === 0 && warned.length === 0;
+
+  if (setupOk) {
+    log(`\n✅ squad-reviews setup complete.`);
+  } else if (failed.length > 0) {
+    log(`\n❌ squad-reviews setup failed — ${failed.length} check(s) failed, ${warned.length} warning(s).`);
+    log(`   See Phase 5 above for details, then re-run \`squad-reviews setup\`.`);
+  } else {
+    log(`\n⚠️  squad-reviews setup completed with ${warned.length} warning(s) — see Phase 5 above.`);
+    log(`   Address the warnings above, then re-run \`squad-reviews doctor\` to verify.`);
+  }
   log(`\nNext steps:`);
   log(`  1. In a Copilot CLI session, call squad_reviews_generate_config`);
   log(`     to scaffold .squad/reviews/config.json from your squad-identity config.`);
@@ -673,6 +697,7 @@ async function commandSetup(values) {
 
   return {
     initialized: true,
+    ok: setupOk,
     target,
     files: {
       config: configDest,
@@ -682,6 +707,7 @@ async function commandSetup(values) {
     labelsCreated,
     gateScaffolded: gateResult?.scaffolded || false,
     copilotInstructions: instructionsResult,
+    doctor: doctorResult,
   };
 }
 

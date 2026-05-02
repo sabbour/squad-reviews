@@ -124,3 +124,69 @@ test('command-specific help works', () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /squad-reviews resolve-thread --pr <number>/);
 });
+
+test('setup → doctor round-trip: doctor agrees with paths setup just installed', async (t) => {
+  const workspace = await createWorkspace(t);
+  await mkdir(resolve(workspace, '.squad', 'reviews'), { recursive: true });
+  await copyFile(requestReviewConfig, resolve(workspace, '.squad', 'reviews', 'config.json'));
+
+  // Pre-create charter files referenced by the fixture config so the `charters`
+  // doctor check passes (otherwise it fails for unrelated reasons and masks the
+  // path-alignment regression we care about).
+  const fixtureConfig = JSON.parse(
+    await readFile(requestReviewConfig, 'utf-8'),
+  );
+  for (const reviewer of Object.values(fixtureConfig.reviewers)) {
+    if (reviewer.charterPath) {
+      const charterAbs = resolve(workspace, reviewer.charterPath);
+      await mkdir(resolve(charterAbs, '..'), { recursive: true });
+      await writeFile(charterAbs, '# charter\n');
+    }
+  }
+
+  execFileSync('git', ['init'], { cwd: workspace, stdio: 'ignore' });
+  execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/octo-org/hello-world.git'], {
+    cwd: workspace,
+    stdio: 'ignore',
+  });
+
+  const result = runCli(['setup', '--target', workspace, '--json'], {
+    cwd: workspace,
+    // Provide a token so the `token` doctor check is OK (not a warning).
+    env: { GH_TOKEN: 'ghs_test_token' },
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+
+  assert.ok(output.doctor, 'setup result must include doctor report');
+
+  const checkByName = Object.fromEntries(
+    output.doctor.checks.map((c) => [c.name, c]),
+  );
+
+  // Regression: setup writes the extension to .github/extensions/squad-reviews/
+  // and the skill to .squad/skills/squad-reviews/. The doctor must look there
+  // (not at .copilot/...). Both checks must be ok with no warnings.
+  assert.equal(
+    checkByName.extension?.ok,
+    true,
+    `extension check should pass after setup; got: ${JSON.stringify(checkByName.extension)}`,
+  );
+  assert.notEqual(checkByName.extension?.warn, true, 'extension check should not warn after setup');
+
+  assert.equal(
+    checkByName.skill?.ok,
+    true,
+    `skill check should pass after setup; got: ${JSON.stringify(checkByName.skill)}`,
+  );
+  assert.notEqual(checkByName.skill?.warn, true, 'skill check should not warn after setup');
+
+  // The setup command itself should report ok=true since every check passed.
+  assert.equal(output.ok, true, `setup.ok should be true when all doctor checks pass; doctor: ${JSON.stringify(output.doctor.checks)}`);
+
+  // And the human-facing summary on stderr should be the success line, not a
+  // "completed with warnings" message.
+  assert.match(result.stderr, /✅ squad-reviews setup complete\./);
+  assert.doesNotMatch(result.stderr, /completed with .* warning/);
+});

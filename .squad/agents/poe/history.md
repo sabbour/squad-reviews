@@ -37,3 +37,7 @@
 - Fix confirmed: Use `npx changeset publish --no-git-tag` in `.github/workflows/squad-release.yml` to prevent duplicate tag push
 - Do not use `commitMode: github-api`; the failure is in the publish command's tag step
 - Decision recorded in .squad/decisions/decisions.md and orchestration log 2026-05-01T22:04:45Z-poe-correction.md
+
+### 2026-05-02T04:14:12-07:00 (setup/doctor path alignment)
+- Root cause: `commandSetup` writes the extension to `.github/extensions/squad-reviews/` and the skill to `.squad/skills/squad-reviews/SKILL.md`, but `commandDoctor` was looking under `.copilot/extensions/squad-reviews/extension.mjs` and `.copilot/skills/squad-reviews/SKILL.md`. The two paths never agreed, so doctor's `extension` and `skill` checks always warned even on a fresh install. Worse, the warning told users to "run `squad-reviews setup`" — exactly what they had just done, an infinite loop.
+- Resolution: doctor now checks the canonical project-scoped paths that setup actually writes, with a fallback that still recognises a legacy `.copilot/...` install. Remediation messages now print the concrete expected file path and suggest `setup --force` / `init` for reinstall, never an empty re-run. `commandSetup` no longer prints `✅ setup complete` when Phase 5 has any failed or warned check; it prints a `❌` or `⚠️` summary instead and exposes `ok` + `doctor` on its JSON return for tooling. Added a regression test (`setup → doctor round-trip`) that runs `setup` against a fresh workspace and asserts every doctor check is green.
