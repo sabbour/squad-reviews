@@ -76,6 +76,18 @@ function log(msg) {
   process.stderr.write(`${msg}\n`);
 }
 
+function printDoctorReport(result) {
+  log(`\nsquad-reviews doctor`);
+  log(`  repo: ${result.repoRoot}`);
+  log(``);
+  for (const check of result.checks) {
+    const icon = check.warn ? '⚠' : check.ok ? '✓' : '✗';
+    log(`  ${icon} ${check.name}: ${check.details}`);
+  }
+  log(``);
+  log(result.ok ? `✅ All checks passed.` : `✗ Some checks failed.`);
+}
+
 function printHelp(commandName) {
   if (commandName && COMMAND_USAGE[commandName]) {
     process.stdout.write(`${COMMAND_USAGE[commandName]}\n`);
@@ -1186,6 +1198,8 @@ async function main(argv = process.argv.slice(2)) {
   const humanCommands = new Set(['setup', 'init', 'doctor']);
   if (result != null && (jsonFlag || !humanCommands.has(commandName))) {
     printJson(result);
+  } else if (commandName === 'doctor' && result != null) {
+    printDoctorReport(result);
   }
 }
 
