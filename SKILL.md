@@ -151,7 +151,7 @@ if (token != null) {
   return validateToken(token);
 }
 return null;
-`` `
+```
 ```
 
 Native suggestions allow the PR author to apply the fix with one click.
@@ -195,7 +195,7 @@ auth failure. This leaks credentials to the log sink.
 
 ```suggestion
 logger.warn('Auth failed', { tokenPrefix: token.slice(0, 8) });
-`` `
+```
 
 Overall: REQUEST_CHANGES due to the credential leak above.
 ```
