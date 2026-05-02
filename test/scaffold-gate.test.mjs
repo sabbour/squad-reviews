@@ -161,5 +161,26 @@ describe('scaffold-gate', () => {
       scaffoldGate(tempDir, {});
       assert.ok(existsSync(workflowsDir));
     });
+
+    it('generated reusable workflow includes normalizeBotLogin for [bot] suffix handling (issue #315)', () => {
+      const yaml = generateReusableWorkflow(['codereview']);
+      assert.ok(
+        yaml.includes('normalizeBotLogin'),
+        'should include normalizeBotLogin function'
+      );
+      assert.ok(
+        yaml.includes('[bot]'),
+        'should reference [bot] suffix in normalization comment or regex'
+      );
+      // The normalization should strip [bot] suffix — verify the comparison uses normalized logins
+      assert.ok(
+        yaml.includes('normalizeBotLogin(botLogin)'),
+        'should normalize the configured botLogin before comparing'
+      );
+      assert.ok(
+        yaml.includes('normalizeBotLogin(r.user?.login)'),
+        'should normalize the reviewer login before comparing'
+      );
+    });
   });
 });

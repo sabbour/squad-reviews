@@ -356,12 +356,20 @@ jobs:
             const approvedRoles = new Set();
             const missingRoles = [];
 
+            // GitHub App reviews appear in REST payloads with the \`[bot]\` suffix
+            // (e.g. \`squad-lead[bot]\`), but some surfaces (PR author, commit author)
+            // drop the suffix. Normalize both sides so comparisons are not defeated
+            // by suffix drift. Backport from kickstart issue #315.
+            function normalizeBotLogin(login) {
+              return (login || '').toLowerCase().replace(/\\[bot\\]$/, '');
+            }
+
             for (const role of requiredRoles) {
               const botLogin = botLoginMap[role] || null;
 
               const roleReviews = allReviews.filter(r => {
-                const login = (r.user?.login || '').toLowerCase();
-                if (botLogin) return login === botLogin.toLowerCase();
+                const login = normalizeBotLogin(r.user?.login);
+                if (botLogin) return login === normalizeBotLogin(botLogin);
                 return (
                   login.includes(role.toLowerCase()) ||
                   login === \`\${role}-bot\` ||
