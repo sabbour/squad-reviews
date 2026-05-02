@@ -1,5 +1,26 @@
 # @sabbour/squad-reviews
 
+## 1.5.3
+
+### Patch Changes
+
+- 19b65b5: Fix `squad-reviews doctor` looking in the wrong directories for the installed extension and skill. The doctor was checking `.copilot/extensions/squad-reviews/extension.mjs` and `.copilot/skills/squad-reviews/SKILL.md`, but `squad-reviews setup` installs to `.github/extensions/squad-reviews/` and `.squad/skills/squad-reviews/SKILL.md` — matching the org-wide convention used by `squad-identity`. As a result, every fresh install raised two `⚠` warnings whose remediation pointed users back to the same `setup` they had just run. The doctor now checks the same paths setup writes to. Also: `squad-reviews setup` now prints `✅ setup complete.` only when every Phase 5 check passes; otherwise it prints `⚠️ completed with N warning(s)` and exits non-zero so CI / scripts can detect partial success.
+- b8fb919: scaffold-gate: normalize `[bot]` suffix on GitHub App actor logins (backport from kickstart #315)
+
+  Per `~/GitWSL/upgrade-repro/REPORT.md`, this fix existed only in kickstart and was clobbered by
+  `squad-reviews setup` overwriting `scaffold-gate.mjs` with the bundled (older) template.
+  Backporting upstream so future upgrades preserve it.
+
+  GitHub App reviews appear in the REST API with the `[bot]` suffix (e.g. `squad-lead[bot]`), but
+  some surfaces — PR author attribution, commit author — drop the suffix (`squad-lead`). The
+  pre-fix code compared `r.user?.login.toLowerCase()` directly against `botLogin.toLowerCase()`,
+  which fails whenever the suffix is present on one side but not the other.
+
+  This patch adds `normalizeBotLogin(login)` inside the generated reusable-workflow script and
+  applies it on both sides of every bot-login comparison in the approval loop. The function strips
+  the `[bot]` suffix case-insensitively before comparing, making bot-login matching robust to
+  suffix drift across GitHub API surfaces.
+
 ## 1.5.2
 
 ### Patch Changes
