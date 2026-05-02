@@ -1,5 +1,32 @@
 # @sabbour/squad-reviews
 
+## 1.5.1
+
+### Patch Changes
+
+- f5bddf9: Fix `squad-reviews doctor` printing nothing in human mode.
+
+  The `doctor` command was registered as a "human" command (suppressing the
+  default JSON output) but never logged anything itself, so `squad-reviews
+doctor` exited silently with no feedback. It now prints each check with a
+  ✓/⚠/✗ icon and a final pass/fail summary, matching the output style used
+  by `setup`. `--json` still emits the structured result unchanged.
+
+- 51b251f: Fix release pipeline blocked by lockfile drift.
+
+  The `package-metadata.test.mjs` assertion requires `package.json` and
+  `package-lock.json` root versions to match. The changesets bot bumps
+  `package.json` via `changeset version` but does not refresh the
+  lockfile, so every Version Packages PR shipped a stale lockfile and the
+  next release run failed at `npm test`.
+
+  Update the `version` npm script to run
+  `changeset version && npm install --package-lock-only --no-audit --no-fund`.
+  The bot will now commit a matching lockfile alongside each version bump,
+  and the release pipeline will stop self-blocking after merges.
+
+  Refresh `package-lock.json` to 1.5.0 to unblock the current main.
+
 ## 1.5.0
 
 ### Minor Changes
