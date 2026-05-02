@@ -2,7 +2,7 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
-import { access, copyFile, mkdir } from 'node:fs/promises';
+import { access, copyFile, mkdir, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -511,6 +511,65 @@ async function commandDoctor() {
   };
 }
 
+/**
+ * Canonical Copilot CLI install locations for project-scoped artifacts.
+ * - Extension: .copilot/extensions/{name}/extension.mjs (Copilot CLI extension discovery convention)
+ * - Skill:     .copilot/skills/{name}/SKILL.md           (Copilot-level skill / coordinator playbook)
+ *
+ * Earlier versions of `squad-reviews setup` mistakenly wrote to
+ * `.github/extensions/squad-reviews/` and `.squad/skills/squad-reviews/`, which
+ * the Copilot CLI never picks up and which the doctor (correctly) ignored.
+ * This helper installs to the canonical locations and cleans up any stale
+ * artifacts left behind at the legacy paths.
+ */
+async function installExtensionAndSkill(packageRoot, target) {
+  const { readdirSync, copyFileSync } = await import('node:fs');
+
+  const extSrcDir = join(packageRoot, 'extensions', 'squad-reviews');
+  const extDestDir = join(target, '.copilot', 'extensions', 'squad-reviews');
+  const skillSrc = join(packageRoot, 'SKILL.md');
+  const skillDestDir = join(target, '.copilot', 'skills', 'squad-reviews');
+
+  // Migration: clean up legacy install paths used by squad-reviews <= 1.5.2.
+  // We log every removal so the operation is never silently destructive.
+  const legacyExtDir = join(target, '.github', 'extensions', 'squad-reviews');
+  const legacySkillDir = join(target, '.squad', 'skills', 'squad-reviews');
+  if (existsSync(legacyExtDir)) {
+    await rm(legacyExtDir, { recursive: true, force: true });
+    log(`  🧹 Removed legacy extension at ${legacyExtDir}`);
+  }
+  if (existsSync(legacySkillDir)) {
+    await rm(legacySkillDir, { recursive: true, force: true });
+    log(`  🧹 Removed legacy skill at ${legacySkillDir}`);
+  }
+
+  // Install extension to canonical location.
+  await mkdir(join(extDestDir, 'lib'), { recursive: true });
+  if (existsSync(extSrcDir)) {
+    const extFiles = readdirSync(extSrcDir).filter((f) => f.endsWith('.mjs'));
+    for (const file of extFiles) {
+      copyFileSync(join(extSrcDir, file), join(extDestDir, file));
+    }
+    const libDir = join(extSrcDir, 'lib');
+    if (existsSync(libDir)) {
+      const libFiles = readdirSync(libDir).filter((f) => f.endsWith('.mjs'));
+      for (const file of libFiles) {
+        copyFileSync(join(libDir, file), join(extDestDir, 'lib', file));
+      }
+    }
+    log(`  ✓ Extension → ${extDestDir}`);
+  }
+
+  // Install SKILL.md to canonical location.
+  await mkdir(skillDestDir, { recursive: true });
+  if (existsSync(skillSrc)) {
+    copyFileSync(skillSrc, join(skillDestDir, 'SKILL.md'));
+    log(`  ✓ SKILL.md → ${join(skillDestDir, 'SKILL.md')}`);
+  }
+
+  return { extDestDir, skillDestDir };
+}
+
 async function commandSetup(values) {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const packageRoot = resolve(__dirname, '..');
@@ -538,35 +597,10 @@ async function commandSetup(values) {
     log(`  ⏭ Config already exists — skipping (use --force to overwrite)`);
   }
 
-  // Install extension
-  const extSrcDir = join(packageRoot, 'extensions', 'squad-reviews');
-  const extDestDir = join(target, '.github', 'extensions', 'squad-reviews');
-  await mkdir(join(extDestDir, 'lib'), { recursive: true });
-
-  const { readdirSync, copyFileSync } = await import('node:fs');
-  if (existsSync(extSrcDir)) {
-    const extFiles = readdirSync(extSrcDir).filter(f => f.endsWith('.mjs'));
-    for (const file of extFiles) {
-      copyFileSync(join(extSrcDir, file), join(extDestDir, file));
-    }
-    const libDir = join(extSrcDir, 'lib');
-    if (existsSync(libDir)) {
-      const libFiles = readdirSync(libDir).filter(f => f.endsWith('.mjs'));
-      for (const file of libFiles) {
-        copyFileSync(join(libDir, file), join(extDestDir, 'lib', file));
-      }
-    }
-    log(`  ✓ Extension → ${extDestDir}`);
-  }
-
-  // Install SKILL.md
-  const skillSrc = join(packageRoot, 'SKILL.md');
-  const skillDestDir = join(target, '.squad', 'skills', 'squad-reviews');
-  await mkdir(skillDestDir, { recursive: true });
-  if (existsSync(skillSrc)) {
-    copyFileSync(skillSrc, join(skillDestDir, 'SKILL.md'));
-    log(`  ✓ SKILL.md → ${join(skillDestDir, 'SKILL.md')}`);
-  }
+  // Install extension + skill to canonical Copilot CLI locations
+  // (.copilot/extensions/squad-reviews/, .copilot/skills/squad-reviews/SKILL.md),
+  // cleaning up any legacy paths from older versions.
+  const { extDestDir, skillDestDir } = await installExtensionAndSkill(packageRoot, target);
 
   log(`\n━━━ Phase 2: Labels ━━━\n`);
 
@@ -663,7 +697,19 @@ async function commandSetup(values) {
     log(`  ${icon} ${check.name}: ${check.details}`);
   }
 
-  log(`\n✅ squad-reviews setup complete.`);
+  // Note: commandDoctor returns ok=true even when there are warnings (a warn is
+  // considered "non-fatal but not clean"). For the setup summary we want the
+  // strict definition: every check must be ok && !warn.
+  const warnCount = doctorResult.checks.filter((c) => c.warn).length;
+  const failCount = doctorResult.checks.filter((c) => !c.ok && !c.warn).length;
+  const setupOk = warnCount === 0 && failCount === 0;
+
+  if (setupOk) {
+    log(`\n✅ squad-reviews setup complete.`);
+  } else {
+    log(`\n⚠️  squad-reviews setup completed with ${warnCount} warning(s)${failCount ? ` and ${failCount} failure(s)` : ''} — see Phase 5 above.`);
+    log(`   Address the issues above, then re-run \`squad-reviews doctor\` to verify.`);
+  }
   log(`\nNext steps:`);
   log(`  1. In a Copilot CLI session, call squad_reviews_generate_config`);
   log(`     to scaffold .squad/reviews/config.json from your squad-identity config.`);
@@ -671,8 +717,14 @@ async function commandSetup(values) {
   log(`  2. Commit all generated files.`);
   log(`  3. Set the Review Gate as a required status check in branch protection.`);
 
+  if (!setupOk) {
+    // Non-zero exit so CI / scripts can detect that setup did not fully succeed.
+    process.exitCode = 1;
+  }
+
   return {
     initialized: true,
+    ok: setupOk,
     target,
     files: {
       config: configDest,
@@ -682,6 +734,7 @@ async function commandSetup(values) {
     labelsCreated,
     gateScaffolded: gateResult?.scaffolded || false,
     copilotInstructions: instructionsResult,
+    doctor: doctorResult,
   };
 }
 
@@ -878,35 +931,9 @@ async function commandInit(values) {
     log(`  ✓ Template → ${templateDest}`);
   }
 
-  // Install extension
-  const extSrcDir = join(packageRoot, 'extensions', 'squad-reviews');
-  const extDestDir = join(target, '.github', 'extensions', 'squad-reviews');
-  await mkdir(join(extDestDir, 'lib'), { recursive: true });
-
-  const { readdirSync, copyFileSync } = await import('node:fs');
-  if (existsSync(extSrcDir)) {
-    const extFiles = readdirSync(extSrcDir).filter(f => f.endsWith('.mjs'));
-    for (const file of extFiles) {
-      copyFileSync(join(extSrcDir, file), join(extDestDir, file));
-    }
-    const libDir = join(extSrcDir, 'lib');
-    if (existsSync(libDir)) {
-      const libFiles = readdirSync(libDir).filter(f => f.endsWith('.mjs'));
-      for (const file of libFiles) {
-        copyFileSync(join(libDir, file), join(extDestDir, 'lib', file));
-      }
-    }
-    log(`  ✓ Extension → ${extDestDir}`);
-  }
-
-  // Install SKILL.md
-  const skillSrc = join(packageRoot, 'SKILL.md');
-  const skillDestDir = join(target, '.squad', 'skills', 'squad-reviews');
-  await mkdir(skillDestDir, { recursive: true });
-  if (existsSync(skillSrc)) {
-    copyFileSync(skillSrc, join(skillDestDir, 'SKILL.md'));
-    log(`  ✓ SKILL.md → ${join(skillDestDir, 'SKILL.md')}`);
-  }
+  // Install extension + skill to canonical Copilot CLI locations,
+  // cleaning up any legacy paths from older versions.
+  const { extDestDir, skillDestDir } = await installExtensionAndSkill(packageRoot, target);
 
   log(`\n✅ Files installed. Run \`squad-reviews setup\` for the full guided flow.`);
 

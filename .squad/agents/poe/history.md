@@ -37,3 +37,10 @@
 - Fix confirmed: Use `npx changeset publish --no-git-tag` in `.github/workflows/squad-release.yml` to prevent duplicate tag push
 - Do not use `commitMode: github-api`; the failure is in the publish command's tag step
 - Decision recorded in .squad/decisions/decisions.md and orchestration log 2026-05-01T22:04:45Z-poe-correction.md
+
+### 2026-05-02T04:14:12-07:00 (setup install paths — canonical .copilot/ locations)
+- Course-corrected after Ahmed verified the installed v1.5.2 binary: the doctor was right all along — `.copilot/extensions/{name}/extension.mjs` is the Copilot CLI's project-scoped extension discovery convention, and `.copilot/skills/{name}/SKILL.md` is the canonical location for Copilot-level skills (the coordinator's playbook). Setup was the buggy side, writing to `.github/extensions/squad-reviews/` and `.squad/skills/squad-reviews/`, which the Copilot CLI never picks up.
+- Fix: both install paths in `commandSetup` and `commandInit` now point at `.copilot/extensions/squad-reviews/` and `.copilot/skills/squad-reviews/`. Factored shared install logic into `installExtensionAndSkill(packageRoot, target)` so the two callers can't drift apart again.
+- Migration: the new helper detects stale legacy installs at `.github/extensions/squad-reviews/` and `.squad/skills/squad-reviews/` and removes them with a logged `🧹 Removed legacy …` line. Never silent.
+- Setup-complete semantics: `✅ squad-reviews setup complete.` only when every Phase 5 check is `ok && !warn`; otherwise `⚠️  squad-reviews setup completed with N warning(s)` and `process.exitCode = 1` so CI can catch it.
+- Tests: added `init migrates legacy install paths …` (planted stale files → asserts removal + canonical install) and `setup → doctor round-trip: doctor reports ok with no warnings after setup` (the regression test that would have caught v1.5.2). Strengthened the existing `init installs files` test to assert the canonical `.copilot/...` paths in the JSON return.
