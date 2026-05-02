@@ -16,7 +16,7 @@ import { loadConfig, SCHEMA_VERSION } from '../extensions/squad-reviews/lib/revi
 import { requestIssueReview, requestPrReview } from '../extensions/squad-reviews/lib/request-review.mjs';
 import { resolveThread } from '../extensions/squad-reviews/lib/resolve-thread.mjs';
 import { scaffoldGate } from '../extensions/squad-reviews/lib/scaffold-gate.mjs';
-import { updateCopilotInstructions } from '../extensions/squad-reviews/lib/copilot-instructions.mjs';
+import { updateCopilotInstructions, readInstalledReviewsVersion } from '../extensions/squad-reviews/lib/copilot-instructions.mjs';
 
 const COMMANDS = {
   setup: 'Full guided setup (recommended)',
@@ -430,8 +430,70 @@ async function commandDoctor() {
     });
   }
 
+  // copilot-instructions.md managed block
+  const instrPath = join(repoRoot, '.github', 'copilot-instructions.md');
+  if (existsSync(instrPath)) {
+    const installedVersion = readInstalledReviewsVersion(repoRoot);
+    const hasBlock = installedVersion !== null
+      || /<!--\s*squad-reviews:\s*start(?:\s+v[^\s>-]+)?\s*-->/.test(readFileSync(instrPath, 'utf-8'));
+    checks.push({
+      name: 'copilot-instructions',
+      ok: hasBlock,
+      warn: !hasBlock,
+      details: hasBlock
+        ? installedVersion
+          ? `squad-reviews block present (v${installedVersion})`
+          : 'squad-reviews block present (legacy, no version stamp — re-run setup)'
+        : 'Missing squad-reviews block — run `squad-reviews setup`',
+    });
+  } else {
+    checks.push({
+      name: 'copilot-instructions',
+      ok: false,
+      warn: true,
+      details: 'No .github/copilot-instructions.md — run `squad-reviews setup`',
+    });
+  }
+
+  // Review gate workflow
+  const gateWorkflow = join(repoRoot, '.github', 'workflows', 'squad-review-gate.yml');
+  const gateOk = existsSync(gateWorkflow);
+  checks.push({
+    name: 'gate-workflow',
+    ok: gateOk,
+    warn: !gateOk,
+    details: gateOk
+      ? '.github/workflows/squad-review-gate.yml present'
+      : 'Missing review-gate workflow — run `squad-reviews setup` (or `scaffold-gate`)',
+  });
+
+  // Installed extension files
+  const extDir = join(repoRoot, '.copilot', 'extensions', 'squad-reviews');
+  const extEntry = join(extDir, 'extension.mjs');
+  const extOk = existsSync(extEntry);
+  checks.push({
+    name: 'extension',
+    ok: extOk,
+    warn: !extOk,
+    details: extOk
+      ? '.copilot/extensions/squad-reviews/ installed'
+      : 'Missing .copilot/extensions/squad-reviews/extension.mjs — run `squad-reviews setup`',
+  });
+
+  // Installed skill
+  const skillFile = join(repoRoot, '.copilot', 'skills', 'squad-reviews', 'SKILL.md');
+  const skillOk = existsSync(skillFile);
+  checks.push({
+    name: 'skill',
+    ok: skillOk,
+    warn: !skillOk,
+    details: skillOk
+      ? '.copilot/skills/squad-reviews/SKILL.md installed'
+      : 'Missing .copilot/skills/squad-reviews/SKILL.md — run `squad-reviews setup`',
+  });
+
   return {
-    ok: checks.every((check) => check.ok),
+    ok: checks.every((check) => check.ok || check.warn),
     repoRoot,
     checks,
   };
