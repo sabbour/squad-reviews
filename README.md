@@ -154,6 +154,17 @@ squad-reviews doctor   # run health checks
 
 ---
 
+## Upgrading
+
+```bash
+npm install -g @sabbour/squad-reviews@latest
+squad-reviews upgrade
+```
+
+The `upgrade` command shows a from→to summary (e.g. `v1.4.1 → v1.5.0`), refreshes the installed extension files, the SKILL.md, and the version-stamped `<!-- squad-reviews: start vX.Y.Z -->` block in `.github/copilot-instructions.md`. Re-run `squad-reviews setup` afterwards to re-scaffold the review-gate workflow if its template changed. Run `squad-reviews doctor` to verify all injected artifacts are present and current.
+
+---
+
 ## How it works
 
 ```mermaid
@@ -182,7 +193,7 @@ For PRs, the canonical approval signal is a native GitHub review with state `APP
 | `squad-reviews init [target-repo]` | Install files only (advanced) |
 | `squad-reviews generate-config [--roles r1,r2] [--force]` | Generate `.squad/reviews/config.json` from squad-identity |
 | `squad-reviews status` | Show current config and registered reviewers |
-| `squad-reviews doctor` | Run health checks (config, identity, labels, GitHub setup) |
+| `squad-reviews doctor` | Run health checks: config, identity, labels, GitHub setup, copilot-instructions block, gate workflow, installed extension, installed SKILL.md |
 | `squad-reviews scaffold-gate [--roles r1,r2] [--dry-run]` | Generate review gate CI workflows |
 | `squad-reviews gate-status --pr N [--owner O --repo R]` | Check gate status for a PR |
 | `squad-reviews report --pr N [--owner O --repo R]` | Full review report for a PR |
@@ -214,7 +225,7 @@ These tools are available to Copilot CLI agents when the extension is installed:
 | `squad_reviews_execute_issue_review` | Execute an issue review (optionally approve) |
 | `squad_reviews_gate_status` | Check gate status for a PR without CI |
 | `squad_reviews_status` | Show config and registered reviewers |
-| `squad_reviews_doctor` | Run health checks |
+| `squad_reviews_doctor` | Run health checks (config + all injected artifacts: copilot-instructions block, gate workflow, extension, skill) |
 | `squad_reviews_setup` | Create config from template (use `--force` to overwrite) |
 | `squad_reviews_init` | Install extension files, SKILL.md, and template into target repo |
 | `squad_reviews_scaffold_gate` | Scaffold review gate CI workflows |

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
 import { access, copyFile, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -16,6 +16,7 @@ import { loadConfig, SCHEMA_VERSION } from '../extensions/squad-reviews/lib/revi
 import { requestIssueReview, requestPrReview } from '../extensions/squad-reviews/lib/request-review.mjs';
 import { resolveThread } from '../extensions/squad-reviews/lib/resolve-thread.mjs';
 import { scaffoldGate } from '../extensions/squad-reviews/lib/scaffold-gate.mjs';
+import { updateCopilotInstructions, readInstalledReviewsVersion } from '../extensions/squad-reviews/lib/copilot-instructions.mjs';
 
 const COMMANDS = {
   setup: 'Full guided setup (recommended)',
@@ -429,8 +430,70 @@ async function commandDoctor() {
     });
   }
 
+  // copilot-instructions.md managed block
+  const instrPath = join(repoRoot, '.github', 'copilot-instructions.md');
+  if (existsSync(instrPath)) {
+    const installedVersion = readInstalledReviewsVersion(repoRoot);
+    const hasBlock = installedVersion !== null
+      || /<!--\s*squad-reviews:\s*start(?:\s+v[^\s>-]+)?\s*-->/.test(readFileSync(instrPath, 'utf-8'));
+    checks.push({
+      name: 'copilot-instructions',
+      ok: hasBlock,
+      warn: !hasBlock,
+      details: hasBlock
+        ? installedVersion
+          ? `squad-reviews block present (v${installedVersion})`
+          : 'squad-reviews block present (legacy, no version stamp — re-run setup)'
+        : 'Missing squad-reviews block — run `squad-reviews setup`',
+    });
+  } else {
+    checks.push({
+      name: 'copilot-instructions',
+      ok: false,
+      warn: true,
+      details: 'No .github/copilot-instructions.md — run `squad-reviews setup`',
+    });
+  }
+
+  // Review gate workflow
+  const gateWorkflow = join(repoRoot, '.github', 'workflows', 'squad-review-gate.yml');
+  const gateOk = existsSync(gateWorkflow);
+  checks.push({
+    name: 'gate-workflow',
+    ok: gateOk,
+    warn: !gateOk,
+    details: gateOk
+      ? '.github/workflows/squad-review-gate.yml present'
+      : 'Missing review-gate workflow — run `squad-reviews setup` (or `scaffold-gate`)',
+  });
+
+  // Installed extension files
+  const extDir = join(repoRoot, '.copilot', 'extensions', 'squad-reviews');
+  const extEntry = join(extDir, 'extension.mjs');
+  const extOk = existsSync(extEntry);
+  checks.push({
+    name: 'extension',
+    ok: extOk,
+    warn: !extOk,
+    details: extOk
+      ? '.copilot/extensions/squad-reviews/ installed'
+      : 'Missing .copilot/extensions/squad-reviews/extension.mjs — run `squad-reviews setup`',
+  });
+
+  // Installed skill
+  const skillFile = join(repoRoot, '.copilot', 'skills', 'squad-reviews', 'SKILL.md');
+  const skillOk = existsSync(skillFile);
+  checks.push({
+    name: 'skill',
+    ok: skillOk,
+    warn: !skillOk,
+    details: skillOk
+      ? '.copilot/skills/squad-reviews/SKILL.md installed'
+      : 'Missing .copilot/skills/squad-reviews/SKILL.md — run `squad-reviews setup`',
+  });
+
   return {
-    ok: checks.every((check) => check.ok),
+    ok: checks.every((check) => check.ok || check.warn),
     repoRoot,
     checks,
   };
@@ -560,7 +623,27 @@ async function commandSetup(values) {
     log(`  ⏭ Skipped: ${e.message}`);
   }
 
-  log(`\n━━━ Phase 4: Health Check ━━━\n`);
+  log(`\n━━━ Phase 4: Coordinator Instructions ━━━\n`);
+
+  let instructionsResult = null;
+  try {
+    instructionsResult = updateCopilotInstructions(target);
+    log(`  ✓ ${instructionsResult.action} squad-reviews block in ${instructionsResult.path}`);
+    const { previousVersion: prev, newVersion: next } = instructionsResult;
+    if (next) {
+      if (prev && prev !== next) {
+        log(`    Block version: v${prev} → v${next}`);
+      } else if (prev && prev === next) {
+        log(`    Block version: v${next} (unchanged)`);
+      } else {
+        log(`    Block version: v${next}`);
+      }
+    }
+  } catch (e) {
+    log(`  ⚠ Could not update copilot-instructions.md: ${e.message}`);
+  }
+
+  log(`\n━━━ Phase 5: Health Check ━━━\n`);
 
   const doctorResult = await commandDoctor();
   for (const check of doctorResult.checks) {
@@ -586,6 +669,7 @@ async function commandSetup(values) {
     },
     labelsCreated,
     gateScaffolded: gateResult?.scaffolded || false,
+    copilotInstructions: instructionsResult,
   };
 }
 
@@ -708,8 +792,12 @@ async function commandUpgrade() {
 
   if (installMode === 'npx') {
     const latestVersion = getLatestPackageVersion(packageName);
-    log(`Running via npx. Re-run with: npx ${packageName}@latest upgrade`);
-    log(`Latest version: ${latestVersion}`);
+    if (latestVersion === currentVersion) {
+      log(`✅ Already on latest (${currentVersion}) via npx.`);
+    } else {
+      log(`⬆️  Update available: ${currentVersion} → ${latestVersion}`);
+      log(`Re-run with: npx ${packageName}@latest upgrade`);
+    }
     return;
   }
 
@@ -718,7 +806,12 @@ async function commandUpgrade() {
   try {
     execFileSync(NPM_COMMAND, ['install', '-g', `${packageName}@latest`], { stdio: 'inherit' });
     const newVersion = getGlobalInstalledPackageVersion(packageName);
-    log(`✅ Upgraded to ${newVersion}`);
+    if (newVersion === currentVersion) {
+      log(`✅ Already on latest: ${newVersion}`);
+    } else {
+      log(`✅ Upgraded ${packageName}: ${currentVersion} → ${newVersion}`);
+    }
+    log(`ℹ️  Re-run \`${packageName.split('/').pop()} setup\` in each target repo to pick up new template/instruction changes.`);
   } catch {
     throw new Error(`Upgrade failed. Try manually: npm install -g ${packageName}@latest`);
   }
