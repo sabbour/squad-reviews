@@ -31,6 +31,11 @@ describe('copilot-instructions injection', () => {
     assert.ok(block.endsWith(SQUAD_REVIEWS_BLOCK_END));
   });
 
+  it('block contains line-level comments rule', () => {
+    const block = buildSquadReviewsInstructionsBlock();
+    assert.match(block, /Line-level comments are for change requests only/);
+  });
+
   it('creates copilot-instructions.md when missing', () => {
     const result = updateCopilotInstructions(tempDir);
     assert.equal(result.action, 'Created');

@@ -72,6 +72,23 @@ describe('review-quality', () => {
       assert.ok(result.violations.some(v => v.includes('REQUEST_CHANGES')));
     });
 
+    it('rejects APPROVE with non-suggestion inline comments', () => {
+      const body = 'src/auth.ts:42 This change looks correct overall. ' + 'word '.repeat(50);
+      const result = validateReviewQuality(body, 'APPROVE', {
+        inlineComments: ['This variable name could be better.'],
+      });
+      assert.equal(result.valid, false);
+      assert.ok(result.violations.some((v) => v.includes('non-suggestion inline comments')));
+    });
+
+    it('allows APPROVE with inline comments that are pure suggestion blocks', () => {
+      const body = 'src/auth.ts:42 Looks good. ' + 'word '.repeat(160);
+      const result = validateReviewQuality(body, 'APPROVE', {
+        inlineComments: ['```suggestion\nconst x = 1;\n```'],
+      });
+      assert.equal(result.valid, true, JSON.stringify(result.violations));
+    });
+
     it('allows REQUEST_CHANGES with suggestions (no contradiction)', () => {
       const body = makeReview(160) +
         '\n\nHowever, this needs fixing:\n```suggestion\nconst x = validate(input);\n```';

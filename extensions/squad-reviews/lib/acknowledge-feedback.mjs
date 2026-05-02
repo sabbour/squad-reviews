@@ -9,7 +9,8 @@ const COPILOT_BOT_AUTHORS = new Set([
 const INSTRUCTION = [
   'Batch feedback per PR: address all related unresolved threads in one implementation pass, validate once, and create one commit for the batch.',
   'Do not make one commit or one push per thread; each synchronize can create notification noise and trigger repeated approval invalidation or rebases.',
-  'After pushing, post or update one consolidated PR comment with squad_reviews_post_feedback_batch, then resolve individual threads with concise substantive replies that reference the batch.',
+  'After pushing, post or update ONE consolidated PR comment with squad_reviews_post_feedback_batch listing every thread you addressed (with the batch commit SHA and a one-line description per thread). This is the audit record.',
+  'Then resolve threads. For action=addressed: do NOT post a per-thread reply — the consolidated PR comment is the acknowledgment. For action=dismissed: post a per-thread reply with the justification (substantive pushback belongs at the line).',
   "For each thread after the batch is pushed: call squad_reviews_resolve_thread with action='addressed' and the batch commit SHA, OR call with action='dismissed' and justification.",
   'After all threads are resolved, check PR reviewDecision. If it is still CHANGES_REQUESTED, ping the human reviewer for re-review/dismissal; separately submit any required Squad role-gate approval with squad_reviews_execute_pr_review.',
 ].join(' ');

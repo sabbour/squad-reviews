@@ -75,38 +75,21 @@ Make the actual code changes in one implementation pass for all related actionab
 
 After fixing and validating, create one feedback-fix commit where possible. Post or update one PR-level feedback summary with the batch commit SHA and the list of threads covered before replying to individual threads.
 
-### Step 4: Reply to each review thread
+### Step 4: Skip per-thread replies for addressed feedback
 
-After the consolidated batch update exists, reply to **each** review comment thread individually with a concise note that references the batch commit/update.
+When you addressed the feedback, do NOT post a per-thread reply — the consolidated PR comment from Step 3 IS the acknowledgment. Posting `Fixed in {sha}` on every thread creates notification spam and is indistinguishable from a new change request.
 
-**REST API call (via gh CLI):**
+**Only post a thread-level reply when you are dismissing or pushing back.** Substantive pushback belongs at the line so the original reviewer sees the justification in context.
 
 ```bash
+# For dismissed feedback — reply IS required (justification at the line):
 gh api repos/{owner}/{repo}/pulls/{pr_number}/comments/{comment_id}/replies \
-  -f body="Fixed in {sha_short} — {brief description of what was changed}"
-```
-
-**Important:** `{comment_id}` must be the ID of the **top-level** comment in the thread. You cannot reply to a reply — only to the original review comment.
-
-**Example replies:**
-
-```bash
-# Specific and traceable
-gh api repos/bradygaster/squad/pulls/42/comments/18234/replies \
-  -f body="Fixed in a1b2c3d — switched to path.dirname(squadDirInfo.path) for worktree consistency"
-
-# When applying a suggested code change
-gh api repos/bradygaster/squad/pulls/42/comments/18235/replies \
-  -f body="Applied suggestion — updated error message to include the file path for debuggability"
-
-# When pushing back on a suggestion
-gh api repos/bradygaster/squad/pulls/42/comments/18236/replies \
-  -f body="Considered but not applied — this path needs to stay absolute because worktree resolution depends on it. See detectSquadDir() in detect-squad-dir.ts."
+  -f body="Dismissed: {justification}"
 ```
 
 ### Step 5: Resolve threads (optional, GraphQL only)
 
-Thread resolution is only available via the GitHub GraphQL API. Use this when your fix fully addresses the comment and no further discussion is needed.
+Thread resolution is only available via the GitHub GraphQL API. For addressed feedback, you can resolve directly after posting the consolidated PR comment in Step 3 — no per-thread reply prerequisite. For dismissals, resolve only after posting the dismissal reply.
 
 **First, get the thread IDs** (they're different from comment IDs):
 
@@ -176,7 +159,7 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 2. **FIX** — Make code changes, tracking comment ID → change mapping
 3. **COMMIT** — Push one traceable feedback-fix commit referencing PR and comments where possible
 4. **BATCH UPDATE** — Post/update one consolidated PR comment with the batch commit SHA
-5. **REPLY** — Post concise individual replies to each thread via `gh api .../replies` that reference the batch
+5. **REPLY (only on dismiss/pushback)** — post per-thread replies only for dismissed feedback or new concerns; addressed feedback is covered by the consolidated PR comment from step 4.
 6. **RESOLVE** — (Optional) Resolve agent-to-agent threads via GraphQL
 7. **STOP** — Do not skip threads, do not resolve human threads, and do not create one commit/push/comment cycle per thread
 
@@ -191,12 +174,8 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 1. Read the comment via `get_review_comments`
 2. Add the null check in `src/cli/core/detect-squad-dir.ts`
 3. Commit: `fix: add null check for squadDir (PR #99 review)`
-4. Reply:
-   ```bash
-   gh api repos/bradygaster/squad/pulls/99/comments/55123/replies \
-     -f body="Fixed in f4e5d6c — added early return when squadDir is undefined, matching the pattern in loadConfig()"
-   ```
-5. Resolve the thread (Copilot → agent, safe to resolve)
+4. Post the consolidated PR comment via `squad_reviews_post_feedback_batch` listing this thread + the fix SHA
+5. Resolve the thread (Copilot → agent, safe to resolve) — no per-thread reply needed; the consolidated PR comment is the audit record
 
 ### Example: Multiple review comments on one PR
 
@@ -262,6 +241,10 @@ gh api repos/bradygaster/squad/pulls/99/comments/55140/replies \
 ```
 
 Do NOT resolve the thread when pushing back. Leave it open for the reviewer to confirm.
+
+### When to post line-level comments (rule)
+
+Line-level comments are for **change requests and pushback only**. Acknowledgments, observations, and "Fixed in {sha}" notices belong in the consolidated PR comment — not on individual lines.
 
 ## Anti-Patterns
 

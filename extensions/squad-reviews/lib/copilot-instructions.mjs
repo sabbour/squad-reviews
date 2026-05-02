@@ -48,7 +48,7 @@ spawn each reviewer agent — both in the same turn.
 2. For each unresolved thread:
    - If you fixed the issue: call \`squad_reviews_resolve_thread\` with action \`addressed\` and reference the fix commit.
    - If the feedback does not apply: call \`squad_reviews_resolve_thread\` with action \`dismissed\` with a justification.
-3. **Never** resolve a thread without replying first — silent dismissal is a governance failure.
+3. **Line-level comments are for change requests only.** Do NOT post per-thread replies for acknowledgments or "addressed in {sha}" — those go in the consolidated PR comment from \`squad_reviews_post_feedback_batch\`. Per-thread replies are only for dismissals (with justification) or raising new concerns. Silent dismissal (resolving without consolidated comment AND without dismissal reply) remains a governance failure.
 4. **Never** self-approve your own PR.
 5. Do not manually apply \`{role}:approved\` labels — the gate applies them automatically.
 
